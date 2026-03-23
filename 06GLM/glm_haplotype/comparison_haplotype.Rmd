@@ -1,0 +1,124 @@
+---
+title: "compare_haplotype"
+author: "Changyi"
+date: "2026-03-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##This scripts compared the clustered SNPs results between (Barghi et al 2019) and the method implemented in (Rudman et al 2022)
+
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(ggpubr)
+library(ggsignif)
+```
+
+
+#1. (Barghi et al 2019)
+```{r}
+palette <- c("#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e")
+df_barghi<-read_xlsx("comparison/pbio.3000128.s014.xlsx", skip = 1)
+df_barghi <- df_barghi %>%
+  separate(`pos (bp)`, into = c("start", "end"), sep="-", remove = FALSE) %>%
+  filter(chr %in% c("2L","2R","3L","3R","X")) %>%
+  mutate(
+    start = as.numeric(gsub(",","",start)),
+    end = as.numeric(gsub(",","",end)),
+    chr = as.factor(chr),
+    cols = rep(palette, length.out = 97)
+  ) 
+ 
+
+```
+
+
+```{r}
+p <- ggplot(df_barghi, aes(y = num)) +
+  geom_segment(aes(x=start/1000000, xend = end/1000000, yend = num, colour = cols),
+               linewidth = 3) +
+  labs(x = "position (Mb)", y = "Region", title="Barghi et al 2019")+
+  facet_wrap(~chr, scales = "free",space = "free_x")+
+  theme_bw()+
+  theme(legend.position = "none")
+ggsave("comparison/haplotype_barghi2019.pdf", width = 10, height = 3)
+
+```
+
+
+#2. (Rudman et al 2022)
+```{r}
+dt_rudman <- NULL
+for (chr in c("2L","2R","3L","3R","X")){
+dt_rudman <- rbind(dt_rudman,
+                   fread(paste0("Clustered_SNPs_step2_founderhap_chr",chr,".txt.gz")))
+}
+palette <- c("#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e")
+invisible(dt_rudman[, cols := rep(palette, length.out = nrow(dt_rudman))])
+```
+
+
+```{r}
+p<- ggplot(dt_rudman, aes(y = seq_along(cl))) +
+  geom_segment(aes(x=startPos/1000000, xend = endPos/1000000, yend = seq_along(cl), colour = cols),
+               linewidth = 3) +
+  labs(x = "position (Mb)", y = "Region", title = "Rudman et al 2022")+
+  facet_wrap(~chrom, scales = "free",space = "free_x")+
+  theme_bw()+
+  theme(legend.position = "none")
+ggsave("comparison/haplotype_rudman2022.pdf", plot = p, width = 10, height = 3)
+```
+
+#3. zommed in 2L:1-5Mb 
+```{r}
+p1 <- ggplot(subset(df_barghi, chr == "2L" & end <= 4000000), aes(y = num)) +
+  geom_segment(aes(x=start/1000000, xend = end/1000000, yend = num, colour = cols),
+               linewidth = 3) +
+  xlim(0,4)+
+  labs(x = "Position (Mb)", y = "Region", title="Barghi et al 2019")+
+  facet_wrap(~chr, scales = "free",space = "free_x")+
+  theme_bw()+
+  theme(legend.position = "none")
+p2<- ggplot(dt_rudman[chrom=="2L" & endPos <= 4000000, ], aes(y = seq_along(cl))) +
+  geom_segment(aes(x=startPos/1000000, xend = endPos/1000000, yend = seq_along(cl), colour = cols),
+               linewidth = 3) +
+  xlim(0,4)+
+  labs(x = "Position (Mb)", y = "Region", title = "Rudman et al 2022")+
+  facet_wrap(~chrom, scales = "free",space = "free_x")+
+  theme_bw()+
+  theme(legend.position = "none")
+p_merge<-ggarrange(p1,p2, nrow = 2)
+ggsave("comparison/2L_1_5Mb.pdf", plot = p_merge, width=7, height = 3)
+```
+
+
+#. length comparison
+```{r}
+
+#extract the region information
+info_barghi <- as.data.table(df_barghi[, c("chr","start","end")])
+invisible(info_barghi[, study := "Barghi et al 2019"])
+colnames(info_barghi) <- c("chr","start","end","study")
+info_rudman <- dt_rudman[, c("chrom","startPos","endPos")]
+invisible(info_rudman[, study := "Rudman et al 2022"])
+colnames(info_rudman) <- c("chr","start","end","study")
+
+info <- rbind(info_barghi, info_rudman)
+invisible(info[, study := factor(study)])
+
+p<-ggplot(info, aes(x=study, y=(end-start)/1000000, colour = study))+
+  geom_boxplot()+
+  geom_signif(comparisons = list(c("Barghi et al 2019", "Rudman et al 2022")),
+              map_signif_level = TRUE,
+              test = function(x,y) wilcox.test(x,y, alternative = "greater"))+
+  labs(x="Study", y= "Length (Mb)", title = "Length of the haplotypes")+
+  theme_bw()+
+  theme(legend.position = "none")
+ggsave("comparison/length_comparison.pdf", plot = p, width = 3, height = 3)
+```

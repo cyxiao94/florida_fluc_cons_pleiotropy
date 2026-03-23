@@ -1,0 +1,9 @@
+nohup: ignoring input
+Error in if (n > 0) c(NA_integer_, -n) else integer() : 
+  missing value where TRUE/FALSE needed
+Calls: suppressMessages ... FUN -> %>% -> filter -> expand.grid -> .set_row_names
+In addition: Warning messages:
+1: In rep.fac * nx : NAs produced by integer overflow
+2: In .set_row_names(as.integer(prod(d))) :
+  NAs introduced by coercion to integer range
+Execution halted

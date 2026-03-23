@@ -1,0 +1,476 @@
+---
+title: "competitive_fitness_bothCGE"
+author: "Changyi"
+date: "2026-02-18"
+output: html_document
+---
+
+
+
+```{r}
+library(R.utils)
+library(pastecs)
+library(data.table)
+library(stringr)
+library(ggsignif)
+library(lme4)
+library(emmeans)
+library(ggplot2)
+library(readxl)
+library(Rmisc)
+library(readxl)
+library(ggpubr)
+library(readxl)
+library(Rmisc)
+```
+
+#1.competitive fitness
+##1.1 load data
+```{r}
+load_data <- function(CGE=NULL) {
+  pop <- paste0(rep(c("Anc_R", "Constant_R", "wave2_R"), each = 5), rep(1:5, 3))
+  
+  raw_data <- read_xlsx(paste0("competitivefitness/",CGE,"_competitivefitness_rawdata.xlsx"))
+  raw_data <- subset(raw_data, EvoRep %in% pop)
+  #get accumulative results
+  #accumu_data<-NULL
+  raw_data <- subset(raw_data, day %in% 1:10)
+  t1 <- aggregate(raw_data$corrected_white,
+                  by = list(raw_data$EvoRep, raw_data$TechRep),
+                  sum)
+  t2 <- aggregate(raw_data$corrected_red,
+                  by = list(raw_data$EvoRep, raw_data$TechRep),
+                  sum)
+  accumu_data <- data.table(
+    evorep = t1$Group.1,
+    techrep = t1$Group.2,
+    white = t1$x,
+    red = t2$x,
+    Days = 10,
+    Population = rep(rep(
+      c("Ancestral", "Constant", "Fluctuating"), each = 5
+    ), 3)
+  )
+  #accumu_data <- rbind(accumu_data,data1)
+  invisible(accumu_data[, total := red + white])
+  invisible(accumu_data[, ratio := red / total])
+  invisible(accumu_data[, CGE := fifelse(CGE=="28_18", "2818", "23")])
+  return(accumu_data)
+}
+
+data_2818<-load_data(CGE="28_18")
+data_23<-load_data(CGE="23")
+data_merge<-rbind(data_23,data_2818)
+invisible(data_merge[, Population := factor(Population, levels = c("Fluctuating","Constant","Ancestral"))]) #we modify the order of levels to keep the sign positive
+invisible(data_merge[, over := factor(rownames(data_merge))]) #to account for the overdispersion
+cols_to_factor<-c("evorep","techrep","Population","CGE")
+invisible(data_merge[, (cols_to_factor) := lapply(.SD, factor), .SDcols = cols_to_factor])
+rm(data_23, data_2818, cols_to_factor)
+```
+
+
+##1.2 fit data to the model(glmer)
+```{r}
+#full_model<-glmer(ratio ~ CGE*Population + (1|evorep), data=data_merge, family = binomial, weights = total)
+full_model<-glmer(ratio ~ CGE*Population + (1|evorep) + (1|over), data=data_merge, family = binomial, weights = total)
+simple_model<-glmer(ratio ~ Population + (1|evorep) + (1|over), data=data_merge, family = binomial, weights = total)
+
+```
+
+##1.3 check the overdispersion factor
+```{r}
+source('competitivefitness/diagnostic_fcns.r')
+diag_full<-overdisp.test(full_model)
+diag_full
+diag_simple<-overdisp.test(simple_model)
+diag_simple
+rm(diag_full, diag_simple)
+```
+
+##1.4 model competing
+```{r}
+anova(full_model, simple_model)
+rm(simple_model)
+```
+
+##1.5 model output
+```{r}
+summary(full_model)
+```
+
+##1.6 emmeans
+```{r}
+relfit_emmeans<-emmeans(full_model, pairwise ~ Population|CGE, adjust="none", type="link")
+
+relfit_emmeans
+
+
+```
+##1.7 compare the contrast
+```{r}
+#this code asking whether the differences between anc and evolved population are significantly larger than the differences between fluc and cons populations
+
+emm<-summary(relfit_emmeans)
+#use differences between fluc and cons as the null model to test against
+obs_diff<-emm$emmeans[emm$emmeans$Population=="Fluctuating","emmean"]-
+  emm$emmeans[emm$emmeans$Population=="Constant","emmean"]
+
+##the population ordered as fluc, cons, anc
+#test whether (fluc-anc) larger than (fluc-cons)
+#(fluc-anc)-(fluc-cons)=0*fluc+1*cons+(-1)*anc
+contrast(relfit_emmeans, list(comparison = c(0,1,-1)), by="CGE", side = ">")
+#contrast(relfit_emmeans, list(comparison = c(1, 0, -1)), by ="CGE", null = obs_diff) #p<0.0001 alternative contrast that follow the same logic
+
+#test whether (cons-anc) larger than (fluc-cons)
+#(cons-anc)-(fluc-cons)=(-1)*fluc+2*cons+(-1)*anc. (1,2,-1)
+contrast(relfit_emmeans, list(fc_vs_fa = c(1,2,-1)), by="CGE", side = ">")
+#contrast(relfit_emmeans,list(comparison = c(0, 1, -1)), by ="CGE", null = obs_diff) #p<0.0001 alternative contrast that follow the same logic
+
+```
+
+
+#2.fecundity
+
+
+##2.1 load fecundity data
+```{r}
+##load fecundity raw data
+eggs_alldates_2818 <- fread("fecundity/rawdata_2818cge.csv")
+eggs_alldates_2818 <- eggs_alldates_2818[pop %in% c("anc","constant","wave2")]
+invisible(eggs_alldates_2818[, CGE := 2818])
+eggs_alldates_23 <- fread("fecundity/rawdata_23cge.csv")
+eggs_alldates_23 <- eggs_alldates_23[pop %in% c("anc","constant","wave2")]
+invisible(eggs_alldates_23[pop %in% c("anc","constant","wave2"), CGE := 23])
+eggs_alldates<-rbind(eggs_alldates_23, eggs_alldates_2818)
+#sum up the eggs across days
+eggs_sum <- eggs_alldates[, .(n_egg_sum = sum(n_egg)), by = .(pop, rep, run, CGE)]
+invisible(eggs_sum[, Population := fifelse(pop=="anc","Ancestral",
+                                 fifelse(pop=="constant","Constant","Fluctuating"))])
+invisible(eggs_sum[, sample := paste(pop, run, rep, sep="_")])
+#load parents information
+info_fluc<-read_xlsx("fecundity/fluc_fecundity_summary.xlsx", col_names = TRUE);info_fluc$CGE <- 2818
+info_cons<-read_xlsx("fecundity/cons_fecundity_summary.xlsx", col_names = TRUE);info_cons$CGE <- 23
+info<-rbind(info_fluc,info_cons)
+merged_dt<-merge(eggs_sum,info, by=c("sample","CGE"))
+#only keep the needed information
+merged_dt<-merged_dt[, .(sample,Population, rep, run, n_egg_sum, number_of_female, weight_females, CGE)]
+
+colnames(merged_dt)<-c("sample","Population","rep","run","num_egg","number_of_female","weight_females","CGE")
+invisible(merged_dt[, evorep := paste0(Population, "_", rep)])
+cols_to_factor <- c("sample","Population","rep","run","evorep","CGE")
+merged_dt[, (cols_to_factor) := lapply(.SD, factor), .SDcols = cols_to_factor]
+rm(eggs_alldates, eggs_alldates_23, eggs_alldates_2818, eggs_sum, info, info_cons, info_fluc, cols_to_factor)
+```
+
+
+
+
+##2.2 lmer
+
+```{r}
+fecundity_lmer<-lmer(log10(num_egg/number_of_female) ~ CGE*Population + (1|evorep), data=merged_dt, REML = FALSE)
+summary(fecundity_lmer)
+```
+
+
+
+
+
+##2.3 if residuals are normally distributed
+```{r}
+ks.test(resid(fecundity_lmer),"pnorm", mean(resid(fecundity_lmer)), sd(resid(fecundity_lmer))) #pvalue=0.9835
+qqnorm(resid(fecundity_lmer))
+```
+##2.4 check the homogeneity of variance
+```{r}
+plot(fecundity_lmer) #if residual evenly distributed around the center line
+
+```
+##2.5 emmeans
+```{r}
+fecunity_emmeans<-emmeans(fecundity_lmer, pairwise ~ Population |CGE, adjust="none")
+fecunity_emmeans
+```
+#3. plot the phenotyic data
+
+##3.1 multiple testing correction
+```{r}
+#here we perform multiple testing correction jointly for competitive fitness and fecundity, as the same question being asked
+#contrast
+#competitive fitness
+contrast_competitivefitness <- as.data.table(relfit_emmeans$contrasts)
+contrast_competitivefitness$trait <- "Competitive Fitness"
+#fecundity
+contrast_fecundity <- as.data.table(fecunity_emmeans$contrasts)
+contrast_fecundity$trait <- "Fecundity"
+
+contrast_result <- rbindlist(list(contrast_fecundity, contrast_competitivefitness), fill = TRUE)
+invisible(contrast_result[, adj.p := p.adjust(p.value)])
+contrast_result[, significant := fifelse(adj.p>0.05, "ns",
+                                         fifelse(adj.p>0.01, "*",
+                                                 fifelse(adj.p>0.001, "**",
+                                                         fifelse(adj.p>0.0001,"***","****"))))]
+#emmeans
+
+##competitive fitness
+relfit_emmeans1<-emmeans(full_model, pairwise ~ Population|CGE, adjust="none", type="response")
+emmeans_competitivefitness <- as.data.table(relfit_emmeans1$emmeans)
+emmeans_competitivefitness$trait <- "Competitive Fitness"
+##fecundity
+fecunity_emmeans1<-emmeans(fecundity_lmer, pairwise ~ Population |CGE, adjust="none", type="response")
+emmeans_fecundity <- as.data.table(fecunity_emmeans1$emmeans)
+emmeans_fecundity$trait <- "Fecundity"
+
+emmeans_result <- rbindlist(list(emmeans_fecundity, emmeans_competitivefitness), fill = TRUE)
+emmeans_result$Population<-factor(emmeans_result$Population, levels = c("Ancestral", "Constant", "Fluctuating"))
+```
+
+
+##3.2 plot from model fit
+```{r}
+p_fecun_23 <- ggplot(emmeans_result[trait == "Fecundity" & CGE=="23",], aes(x=Population,y=response, fill = Population))+
+  geom_bar(stat = "identity", col="black")+
+  scale_fill_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+  #geom_errorbar(aes(ymin=10^(lower.CL),ymax=10^(upper.CL)),width=0.2,size=1)+
+  geom_pointrange(aes(ymin = lower.CL, ymax = upper.CL), show.legend = FALSE)+
+  ylim(0,50)+
+  labs(title = "", y="Number of eggs per female", x="Population")+
+  geom_signif(comparisons = list(c("Ancestral", "Constant"),
+                                 c("Ancestral", "Fluctuating"),
+                                 c("Constant", "Fluctuating")),
+              annotations = c("***","****","ns"),
+              y_position = c(41,47,44))+
+  theme(legend.position = "none",
+        panel.background = element_rect(fill = alpha("#4fc0c6", 0.3)),
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size=18),title = element_text(size=20))
+
+p_fecun_2818 <- ggplot(emmeans_result[trait == "Fecundity" & CGE=="2818",], aes(x=Population,y=response, fill = Population))+
+  geom_bar(stat = "identity", col="black")+
+  scale_fill_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+  geom_pointrange(aes(ymin = lower.CL, ymax = upper.CL), show.legend = FALSE)+
+  ylim(0,50)+
+  labs(title = "", y="Number of eggs per female", x="Population")+
+  geom_signif(comparisons = list(c("Ancestral", "Constant"),
+                                 c("Ancestral", "Fluctuating"),
+                                 c("Constant", "Fluctuating")),
+              annotations = c("****","****","ns"),
+              y_position = c(41,47,44))+
+  theme(legend.position = "none",
+        panel.background = element_rect(fill = alpha("#e8a11c", 0.3)),
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size=18),title = element_text(size=20))
+
+p_relfit_23 <- ggplot(emmeans_result[trait == "Competitive Fitness" & CGE=="23",], aes(x=Population,y=prob, fill = Population))+
+  geom_bar(stat = "identity", col="black")+
+  scale_fill_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+  geom_pointrange(aes(ymin = asymp.LCL, ymax = asymp.UCL), show.legend = FALSE)+
+  ylim(0,1)+
+  labs(title = "", y=" Proportion of red-eyed flies", x="Population")+
+  geom_signif(comparisons = list(c("Ancestral", "Constant"),
+                                 c("Ancestral", "Fluctuating"),
+                                 c("Constant", "Fluctuating")),
+              annotations = c("****","****","ns"),
+              y_position = c(0.8,0.95,0.875))+
+  theme(legend.position = "none",
+        panel.background = element_rect(fill = alpha("#4fc0c6", 0.3)),
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size=18),title = element_text(size=20))
+
+p_relfit_2818 <- ggplot(emmeans_result[trait == "Competitive Fitness" & CGE=="2818",], aes(x=Population,y=prob, fill = Population))+
+  geom_bar(stat = "identity", col="black")+
+  scale_fill_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+  geom_pointrange(aes(ymin = asymp.LCL, ymax = asymp.UCL), show.legend = FALSE)+
+  ylim(0,1)+
+  labs(title = "", y="Proportion of red-eyed flies", x="Population")+
+  geom_signif(comparisons = list(c("Ancestral", "Constant"),
+                                 c("Ancestral", "Fluctuating"),
+                                 c("Constant", "Fluctuating")),
+              annotations = c("****","****","*"),
+              y_position = c(0.8,0.95,0.875))+
+  theme(legend.position = "none",
+        panel.background = element_rect(fill = alpha("#e8a11c", 0.3)),
+        axis.text = element_text(size = 14),
+        axis.title = element_text(size=18),title = element_text(size=20))
+
+library(cowplot)
+plots <- list(p_fecun_23, p_fecun_2818, p_relfit_23, p_relfit_2818)
+
+merge_p <- plot_grid(
+  plotlist = plots, labels = c("A", "B", "C", "D"), label_size = 20,
+  nrow=2
+)
+
+merge_p_annotated <- ggdraw() +
+  draw_plot(merge_p, x = 0.05, y = 0, width = 0.95, height = 0.97) +
+  draw_label("23 CGE", x = 0.32, y = 0.95, hjust = 0.5, fontface = "bold", size = 25) +
+  draw_label("2818 CGE", x = 0.78, y = 0.95, hjust = 0.5, fontface = "bold", size = 25) +
+  draw_label("Fecundity", x = 0.02, y = 0.72, hjust = 0.5, angle = 90, fontface = "bold", size = 25) +
+  draw_label("Competitive Fitness", x = 0.02, y = 0.25, hjust = 0.5, angle = 90, fontface = "bold", size = 25) 
+  
+
+ggsave("Phenotype_modelfit.pdf", width = 12, height = 10,plot = merge_p_annotated)
+
+
+```
+
+
+
+#4. developmental time
+##4.1 23CGE
+```{r}
+#use the measurement from competitive fitness but check the eclosion trajectory
+
+#read raw data
+raw_data<-read_xlsx("competitivefitness/23_competitivefitness_rawdata.xlsx")
+pop<-paste(rep(c("Anc_R","Constant_R","wave2_R"), each=5),
+           rep(1:5,3),
+           sep="")
+raw_data<-subset(raw_data, EvoRep %in% pop)
+
+#get accumulative results 
+accumu_data<-NULL
+for (i in 1:10){
+  raw_data1<-subset(raw_data, day %in% 1:i)
+  t1<-aggregate(raw_data1$corrected_white, by = list(raw_data1$EvoRep, raw_data1$TechRep), sum) #flies with white eye
+  t2<-aggregate(raw_data1$corrected_red, by = list(raw_data1$EvoRep, raw_data1$TechRep), sum) #flies with red eye
+  data1<-data.frame(evorep=t1$Group.1, techrep=t1$Group.2, white=t1$x, red=t2$x, Days=i,
+                  Population=rep(rep(c("Ancestral","Constant","Fluctuating"),each=5),3))
+  accumu_data<-rbind(accumu_data,data1)}
+accumu_data$total=accumu_data$red+accumu_data$white
+accumu_data$ratio<-accumu_data$red/accumu_data$total
+red_day10=subset(accumu_data,Days==10, select = c("evorep","techrep","red"))
+colnames(red_day10)=c("evorep","techrep","red_day10")
+
+accumu_data=merge(accumu_data,red_day10,by=c("evorep","techrep"))
+accumu_data$ratio_day10=accumu_data$red/accumu_data$red_day10
+
+accumu_plot_data_ratio<-summarySE(accumu_data, measurevar = "ratio_day10", groupvars = c("Population","Days"))
+ratio_red<-ggplot(accumu_plot_data_ratio, aes(x=Days, y = ratio_day10, group=Population, col=Population))+
+  geom_line()+
+  geom_point()+
+   annotate("rect", xmin = 0.8, xmax = 1.2, ymin = 0.0, ymax = 0.4, 
+           color = "red", fill = NA, linetype = "dashed", size = 0.5) +
+  geom_errorbar(aes(ymin=ratio_day10-2*se, ymax=ratio_day10+2*se),width=0.1)+
+  xlab("Days")+ylab("Proportion of red-eyed flies")+
+  scale_x_continuous(breaks = seq(1,10,1))+
+  scale_y_continuous(breaks = seq(0,1,0.2), limits = c(0,1))+
+  scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+  ggtitle("23CGE")+
+  theme(panel.background = element_rect(fill="#eeeeee"),
+        panel.grid.minor = element_blank(),
+        legend.position = c(0.1,0.8))
+
+#plot(ratio_red)
+
+
+
+accumu_data$Days=factor(accumu_data$Days)
+accumu_data$Population=factor(accumu_data$Population)
+ratio_red_box<-ggplot(subset(accumu_data,Days==1), aes(x=Population, y = ratio_day10, col=Population))+
+  geom_boxplot()+
+  ylab("Proportion of red-eyed flies")+
+  scale_y_continuous(breaks = seq(0,0.6,0.2), limits = c(0,0.6))+
+  scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+  geom_signif(comparisons = list(c("Ancestral","Fluctuating"),c("Ancestral","Constant"),c("Fluctuating", "Constant")),
+              test = "wilcox.test",map_signif_level=TRUE,
+              step_increase = 0.1,)+
+  ggtitle("Day1")+
+  theme(panel.background = element_rect(fill="#eeeeee"),
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust=0.5))
+
+plot(ratio_red_box)
+
+# Convert the inset plot to a grob
+ratio_red_box <- ggplotGrob(ratio_red_box)
+merge_plot=ratio_red +
+  annotation_custom(
+    grob = ratio_red_box,
+    xmin = 5, xmax = 10,    # Set position in the x-axis
+    ymin = 0.0, ymax = 0.7    # Set position in the y-axis
+  )
+plot(merge_plot)
+ggsave("Competitive_Fitness_trajectory_23CGE.pdf", width = 10, height = 6)
+```
+
+
+##4.2 2818 CGE
+```{r}
+#use the measurement from competitive fitness but check the eclosion trajectory
+
+#read raw data
+raw_data<-read_xlsx("competitivefitness/28_18_competitivefitness_rawdata.xlsx")
+pop<-paste(rep(c("Anc_R","Constant_R","wave2_R"), each=5),
+           rep(1:5,3),
+           sep="")
+raw_data<-subset(raw_data, EvoRep %in% pop)
+
+#get accumulative results 
+accumu_data<-NULL
+for (i in 1:10){
+  raw_data1<-subset(raw_data, day %in% 1:i)
+  t1<-aggregate(raw_data1$corrected_white, by = list(raw_data1$EvoRep, raw_data1$TechRep), sum) #flies with white eye
+  t2<-aggregate(raw_data1$corrected_red, by = list(raw_data1$EvoRep, raw_data1$TechRep), sum) #flies with red eye
+  data1<-data.frame(evorep=t1$Group.1, techrep=t1$Group.2, white=t1$x, red=t2$x, Days=i,
+                  Population=rep(rep(c("Ancestral","Constant","Fluctuating"),each=5),3))
+  accumu_data<-rbind(accumu_data,data1)}
+accumu_data$total=accumu_data$red+accumu_data$white
+accumu_data$ratio<-accumu_data$red/accumu_data$total
+red_day10=subset(accumu_data,Days==10, select = c("evorep","techrep","red"))
+colnames(red_day10)=c("evorep","techrep","red_day10")
+
+accumu_data=merge(accumu_data,red_day10,by=c("evorep","techrep"))
+accumu_data$ratio_day10=accumu_data$red/accumu_data$red_day10
+
+accumu_plot_data_ratio<-summarySE(accumu_data, measurevar = "ratio_day10", groupvars = c("Population","Days"))
+ratio_red<-ggplot(accumu_plot_data_ratio, aes(x=Days, y = ratio_day10, group=Population, col=Population))+
+  geom_line()+
+  geom_point()+
+   annotate("rect", xmin = 0.8, xmax = 1.2, ymin = 0.0, ymax = 0.1, 
+           color = "red", fill = NA, linetype = "dashed", size = 0.5) +
+  geom_errorbar(aes(ymin=ratio_day10-2*se, ymax=ratio_day10+2*se),width=0.1)+
+  xlab("Days")+ylab("Proportion of red-eyed flies")+
+  scale_x_continuous(breaks = seq(1,10,1))+
+  scale_y_continuous(breaks = seq(0,1,0.2), limits = c(0,1))+
+  scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+  ggtitle("2818 CGE")+
+  theme(panel.background = element_rect(fill="#eeeeee"),
+        panel.grid.minor = element_blank(),
+        legend.position = c(0.1,0.8))
+
+#plot(ratio_red)
+
+
+
+accumu_data$Days=factor(accumu_data$Days)
+accumu_data$Population=factor(accumu_data$Population)
+ratio_red_box<-ggplot(subset(accumu_data,Days==1), aes(x=Population, y = ratio_day10, col=Population))+
+  geom_boxplot()+
+  ylab("Proportion of red-eyed flies")+
+  scale_y_continuous(breaks = seq(0,0.12,0.02), limits = c(0,0.12))+
+  scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+  geom_signif(comparisons = list(c("Ancestral","Fluctuating"),c("Ancestral","Constant"),c("Fluctuating", "Constant")),
+              test = "wilcox.test",map_signif_level=TRUE,
+              step_increase = 0.1,)+
+  ggtitle("Day1")+
+  theme(panel.background = element_rect(fill="#eeeeee"),
+        panel.grid.minor = element_blank(),
+        legend.position = "none",
+        axis.text.x = element_text(angle = 0, hjust=0.5))
+
+plot(ratio_red_box)
+
+# Convert the inset plot to a grob
+ratio_red_box <- ggplotGrob(ratio_red_box)
+merge_plot=ratio_red +
+  annotation_custom(
+    grob = ratio_red_box,
+    xmin = 5, xmax = 10,    # Set position in the x-axis
+    ymin = 0.0, ymax = 0.7    # Set position in the y-axis
+  )
+plot(merge_plot)
+ggsave("Competitive_Fitness_trajectory_2818CGE.pdf", width = 10, height = 6)
+```
+

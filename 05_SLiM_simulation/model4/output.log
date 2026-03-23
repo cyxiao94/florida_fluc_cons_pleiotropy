@@ -1,0 +1,193 @@
+realpath: '': No such file or directory
+INFO:	Writing output to /home/vetlinux04/Changyi/fluctuating_constant_florida/23simulation_pleiotropy/simulation13_final_simulation/01_AF_0.1/model4/out ...
+INFO:	../pslim.sh -r -X ../slim.tar.gz -i 03_selection.slim -n 1000 -p 0parameters -f 0files/02pleiotropic_effects,0files/01vcffile -o out -M 10240 -T ./tempf
+INFO:	pslim.sh v0.0.9010
+INFO:	Starting at Tue Nov  5 10:20:22 CET 2024 ...
+INFO:	Using slim binary provided in file:///home/vetlinux04/Changyi/fluctuating_constant_florida/23simulation_pleiotropy/simulation13_final_simulation/01_AF_0.1/slim.tar.gz ...
+INFO:	Working in /tmp/pslim.WoBLr ...
+INFO:	Finding empty queue ...
+INFO:	Using queue pg4 ...
+packageJobJar: [/tmp/hadoop-unjar3947356650027307189/] [] /tmp/streamjob4330187718576461966.jar tmpDir=null
+24/11/05 10:22:01 INFO client.RMProxy: Connecting to ResourceManager at i122srv57.vu-wien.ac.at/10.120.3.187:8032
+24/11/05 10:22:01 INFO client.AHSProxy: Connecting to Application History server at i122srv57.vu-wien.ac.at/10.120.3.187:10200
+24/11/05 10:22:01 INFO client.RMProxy: Connecting to ResourceManager at i122srv57.vu-wien.ac.at/10.120.3.187:8032
+24/11/05 10:22:01 INFO client.AHSProxy: Connecting to Application History server at i122srv57.vu-wien.ac.at/10.120.3.187:10200
+24/11/05 10:22:04 INFO fourmc.FourMcNativeCodeLoader: hadoop-4mc: loaded native library (embedded)
+24/11/05 10:22:04 INFO fourmc.Lz4Codec: Successfully loaded & initialized native-4mc library
+24/11/05 10:22:04 INFO fourmc.ZstdCodec: Successfully loaded & initialized native-4mc library
+24/11/05 10:22:04 INFO fourmc.Lz4HighCodec: Successfully loaded & initialized native-4mc library
+24/11/05 10:22:04 INFO fourmc.Lz4MediumCodec: Successfully loaded & initialized native-4mc library
+24/11/05 10:22:04 INFO fourmc.Lz4UltraCodec: Successfully loaded & initialized native-4mc library
+24/11/05 10:22:04 INFO mapred.FileInputFormat: Total input files to process : 1
+24/11/05 10:22:04 INFO mapreduce.JobSubmitter: number of splits:1001
+24/11/05 10:22:04 INFO mapreduce.JobSubmitter: Submitting tokens for job: job_1726051453326_0063
+24/11/05 10:22:04 INFO conf.Configuration: resource-types.xml not found
+24/11/05 10:22:04 INFO resource.ResourceUtils: Unable to find 'resource-types.xml'.
+24/11/05 10:22:04 INFO resource.ResourceUtils: Adding resource type - name = memory-mb, units = Mi, type = COUNTABLE
+24/11/05 10:22:04 INFO resource.ResourceUtils: Adding resource type - name = vcores, units = , type = COUNTABLE
+24/11/05 10:22:04 INFO impl.YarnClientImpl: Submitted application application_1726051453326_0063
+24/11/05 10:22:04 INFO mapreduce.Job: The url to track the job: http://i122srv57.vu-wien.ac.at:8088/proxy/application_1726051453326_0063/
+24/11/05 10:22:04 INFO mapreduce.Job: Running job: job_1726051453326_0063
+24/11/05 10:22:21 INFO mapreduce.Job: Job job_1726051453326_0063 running in uber mode : false
+24/11/05 10:22:21 INFO mapreduce.Job:  map 0% reduce 0%
+24/11/05 10:38:36 INFO mapreduce.Job:  map 1% reduce 0%
+24/11/05 10:38:46 INFO mapreduce.Job:  map 2% reduce 0%
+24/11/05 10:38:54 INFO mapreduce.Job:  map 3% reduce 0%
+24/11/05 10:39:01 INFO mapreduce.Job:  map 4% reduce 0%
+24/11/05 10:39:09 INFO mapreduce.Job:  map 5% reduce 0%
+24/11/05 10:39:17 INFO mapreduce.Job:  map 6% reduce 0%
+24/11/05 10:39:23 INFO mapreduce.Job:  map 7% reduce 0%
+24/11/05 10:39:30 INFO mapreduce.Job:  map 8% reduce 0%
+24/11/05 10:39:42 INFO mapreduce.Job:  map 9% reduce 0%
+24/11/05 10:39:51 INFO mapreduce.Job:  map 10% reduce 0%
+24/11/05 10:41:04 INFO mapreduce.Job:  map 11% reduce 0%
+24/11/05 10:41:44 INFO mapreduce.Job:  map 13% reduce 0%
+24/11/05 10:41:53 INFO mapreduce.Job:  map 14% reduce 0%
+24/11/05 10:41:58 INFO mapreduce.Job:  map 15% reduce 0%
+24/11/05 10:42:02 INFO mapreduce.Job:  map 16% reduce 0%
+24/11/05 10:42:07 INFO mapreduce.Job:  map 17% reduce 0%
+24/11/05 10:42:12 INFO mapreduce.Job:  map 18% reduce 0%
+24/11/05 10:42:17 INFO mapreduce.Job:  map 19% reduce 0%
+24/11/05 10:42:20 INFO mapreduce.Job:  map 20% reduce 0%
+24/11/05 10:42:29 INFO mapreduce.Job:  map 21% reduce 0%
+24/11/05 10:42:39 INFO mapreduce.Job:  map 22% reduce 0%
+24/11/05 10:42:47 INFO mapreduce.Job:  map 23% reduce 0%
+24/11/05 10:43:20 INFO mapreduce.Job:  map 24% reduce 0%
+24/11/05 10:46:36 INFO mapreduce.Job:  map 25% reduce 0%
+24/11/05 10:46:47 INFO mapreduce.Job:  map 26% reduce 0%
+24/11/05 10:46:52 INFO mapreduce.Job:  map 27% reduce 0%
+24/11/05 10:47:06 INFO mapreduce.Job:  map 28% reduce 0%
+24/11/05 10:47:11 INFO mapreduce.Job:  map 29% reduce 0%
+24/11/05 10:47:17 INFO mapreduce.Job:  map 30% reduce 0%
+24/11/05 10:47:31 INFO mapreduce.Job:  map 31% reduce 0%
+24/11/05 10:47:36 INFO mapreduce.Job:  map 32% reduce 0%
+24/11/05 10:47:42 INFO mapreduce.Job:  map 33% reduce 0%
+24/11/05 10:47:48 INFO mapreduce.Job:  map 34% reduce 0%
+24/11/05 10:47:57 INFO mapreduce.Job:  map 35% reduce 0%
+24/11/05 10:48:05 INFO mapreduce.Job:  map 36% reduce 0%
+24/11/05 10:48:10 INFO mapreduce.Job:  map 37% reduce 0%
+24/11/05 10:48:14 INFO mapreduce.Job:  map 38% reduce 0%
+24/11/05 10:48:17 INFO mapreduce.Job:  map 39% reduce 0%
+24/11/05 10:48:23 INFO mapreduce.Job:  map 40% reduce 0%
+24/11/05 10:48:31 INFO mapreduce.Job:  map 41% reduce 0%
+24/11/05 10:48:45 INFO mapreduce.Job:  map 42% reduce 0%
+24/11/05 10:48:51 INFO mapreduce.Job:  map 43% reduce 0%
+24/11/05 10:49:01 INFO mapreduce.Job:  map 44% reduce 0%
+24/11/05 10:49:11 INFO mapreduce.Job:  map 45% reduce 0%
+24/11/05 10:49:25 INFO mapreduce.Job:  map 46% reduce 0%
+24/11/05 10:50:17 INFO mapreduce.Job:  map 47% reduce 0%
+24/11/05 10:51:09 INFO mapreduce.Job:  map 48% reduce 0%
+24/11/05 10:51:32 INFO mapreduce.Job:  map 49% reduce 0%
+24/11/05 10:51:45 INFO mapreduce.Job:  map 50% reduce 0%
+24/11/05 10:51:50 INFO mapreduce.Job:  map 51% reduce 0%
+24/11/05 10:52:00 INFO mapreduce.Job:  map 52% reduce 0%
+24/11/05 10:52:11 INFO mapreduce.Job:  map 53% reduce 0%
+24/11/05 10:52:19 INFO mapreduce.Job:  map 54% reduce 0%
+24/11/05 10:52:27 INFO mapreduce.Job:  map 55% reduce 0%
+24/11/05 10:52:37 INFO mapreduce.Job:  map 56% reduce 0%
+24/11/05 10:52:50 INFO mapreduce.Job:  map 57% reduce 0%
+24/11/05 10:52:57 INFO mapreduce.Job:  map 58% reduce 0%
+24/11/05 10:53:14 INFO mapreduce.Job:  map 59% reduce 0%
+24/11/05 10:54:54 INFO mapreduce.Job:  map 60% reduce 0%
+24/11/05 10:55:10 INFO mapreduce.Job:  map 61% reduce 0%
+24/11/05 10:55:27 INFO mapreduce.Job:  map 62% reduce 0%
+24/11/05 10:55:35 INFO mapreduce.Job:  map 63% reduce 0%
+24/11/05 10:55:48 INFO mapreduce.Job:  map 64% reduce 0%
+24/11/05 10:55:58 INFO mapreduce.Job:  map 65% reduce 0%
+24/11/05 10:56:05 INFO mapreduce.Job:  map 66% reduce 0%
+24/11/05 10:56:14 INFO mapreduce.Job:  map 67% reduce 0%
+24/11/05 10:56:31 INFO mapreduce.Job:  map 68% reduce 0%
+24/11/05 10:56:45 INFO mapreduce.Job:  map 69% reduce 0%
+24/11/05 10:56:54 INFO mapreduce.Job:  map 70% reduce 0%
+24/11/05 10:57:12 INFO mapreduce.Job:  map 71% reduce 0%
+24/11/05 10:57:50 INFO mapreduce.Job:  map 72% reduce 0%
+24/11/05 10:58:32 INFO mapreduce.Job:  map 73% reduce 0%
+24/11/05 10:59:01 INFO mapreduce.Job:  map 74% reduce 0%
+24/11/05 10:59:13 INFO mapreduce.Job:  map 75% reduce 0%
+24/11/05 10:59:30 INFO mapreduce.Job:  map 76% reduce 0%
+24/11/05 10:59:36 INFO mapreduce.Job:  map 77% reduce 0%
+24/11/05 10:59:44 INFO mapreduce.Job:  map 78% reduce 0%
+24/11/05 10:59:47 INFO mapreduce.Job:  map 79% reduce 0%
+24/11/05 10:59:53 INFO mapreduce.Job:  map 80% reduce 0%
+24/11/05 10:59:58 INFO mapreduce.Job:  map 81% reduce 0%
+24/11/05 11:00:02 INFO mapreduce.Job:  map 82% reduce 0%
+24/11/05 11:00:07 INFO mapreduce.Job:  map 83% reduce 0%
+24/11/05 11:00:13 INFO mapreduce.Job:  map 84% reduce 0%
+24/11/05 11:00:18 INFO mapreduce.Job:  map 85% reduce 0%
+24/11/05 11:00:22 INFO mapreduce.Job:  map 86% reduce 0%
+24/11/05 11:00:26 INFO mapreduce.Job:  map 87% reduce 0%
+24/11/05 11:00:30 INFO mapreduce.Job:  map 88% reduce 0%
+24/11/05 11:00:33 INFO mapreduce.Job:  map 89% reduce 0%
+24/11/05 11:00:39 INFO mapreduce.Job:  map 90% reduce 0%
+24/11/05 11:00:48 INFO mapreduce.Job:  map 91% reduce 0%
+24/11/05 11:00:54 INFO mapreduce.Job:  map 92% reduce 0%
+24/11/05 11:00:58 INFO mapreduce.Job:  map 93% reduce 0%
+24/11/05 11:01:10 INFO mapreduce.Job:  map 94% reduce 0%
+24/11/05 11:01:18 INFO mapreduce.Job:  map 95% reduce 0%
+24/11/05 11:01:30 INFO mapreduce.Job:  map 96% reduce 0%
+24/11/05 11:02:06 INFO mapreduce.Job:  map 97% reduce 0%
+24/11/05 11:08:43 INFO mapreduce.Job:  map 98% reduce 0%
+24/11/05 11:13:45 INFO mapreduce.Job:  map 99% reduce 0%
+24/11/05 11:22:51 INFO mapreduce.Job:  map 100% reduce 0%
+24/11/05 11:29:32 INFO mapreduce.Job:  map 100% reduce 100%
+24/11/05 11:29:33 INFO mapreduce.Job: Job job_1726051453326_0063 completed successfully
+24/11/05 11:29:33 INFO mapreduce.Job: Counters: 51
+	File System Counters
+		FILE: Number of bytes read=130026
+		FILE: Number of bytes written=219467351
+		FILE: Number of read operations=0
+		FILE: Number of large read operations=0
+		FILE: Number of write operations=0
+		HDFS: Number of bytes read=62716654
+		HDFS: Number of bytes written=128020
+		HDFS: Number of read operations=3006
+		HDFS: Number of large read operations=0
+		HDFS: Number of write operations=2
+	Job Counters 
+		Killed map tasks=74
+		Launched map tasks=1071
+		Launched reduce tasks=1
+		Data-local map tasks=57
+		Rack-local map tasks=1014
+		Total time spent by all maps in occupied slots (ms)=15686167370
+		Total time spent by all reduces in occupied slots (ms)=3015331
+		Total time spent by all map tasks (ms)=1568616737
+		Total time spent by all reduce tasks (ms)=3015331
+		Total vcore-milliseconds taken by all map tasks=1568616737
+		Total vcore-milliseconds taken by all reduce tasks=3015331
+		Total megabyte-milliseconds taken by all map tasks=16062635386880
+		Total megabyte-milliseconds taken by all reduce tasks=3087698944
+	Map-Reduce Framework
+		Map input records=1000
+		Map output records=1000
+		Map output bytes=128020
+		Map output materialized bytes=136026
+		Input split bytes=134134
+		Combine input records=0
+		Combine output records=0
+		Reduce input groups=1000
+		Reduce shuffle bytes=136026
+		Reduce input records=1000
+		Reduce output records=1000
+		Spilled Records=2000
+		Shuffled Maps =1001
+		Failed Shuffles=0
+		Merged Map outputs=1001
+		GC time elapsed (ms)=152244
+		CPU time spent (ms)=3272370
+		Physical memory (bytes) snapshot=341828972544
+		Virtual memory (bytes) snapshot=2448975831040
+		Total committed heap usage (bytes)=198126862336
+	Shuffle Errors
+		BAD_ID=0
+		CONNECTION=0
+		IO_ERROR=0
+		WRONG_LENGTH=0
+		WRONG_MAP=0
+		WRONG_REDUCE=0
+	File Input Format Counters 
+		Bytes Read=62582520
+	File Output Format Counters 
+		Bytes Written=128020
+24/11/05 11:29:33 INFO streaming.StreamJob: Output directory: /user/vetlinux04/pslim/pslim.WoBLr/out
+INFO:	All done at Tue Nov  5 11:30:58 CET 2024.

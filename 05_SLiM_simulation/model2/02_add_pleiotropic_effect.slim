@@ -1,0 +1,96 @@
+// set up a simple neutral simulation
+initialize() {
+	if (exists("slimgui")){
+		setwd("/Users/cxiao/my_project/fluctuation_constant/23_slim_simulation_pleiotropy/simulation10_nopleio_proportion_lab");
+		defineConstant("ispleiotropy","nopleio");
+		defineConstant("set",'1');
+		defineConstant("num_snp",'1000');
+		defineConstant("per_lab",'0.8');
+	};
+	//setSeed(100);
+	
+	defineConstant("seq_len",2500000);
+	
+	defineConstant("mu", 0);
+	
+	initializeTreeSeq(); //turn on tree sequencing recording
+	
+	initializeMutationRate(mu);
+	initializeSex("A"); //autosome	
+	
+	// m1 mutation type: neutral
+	initializeMutationType("m1", 0.5, "f", 0.0);
+	
+	// g1 genomic element type: uses m1 for all mutations
+	initializeGenomicElementType("g1", m1, 1.0);
+	
+	// simulation on chr2L
+	initializeGenomicElement(g1, 0, seq_len-1);
+	
+	//recombination rate
+	map=readCSV("0files/01vcffile/chr2L_rec.txt",c("ends","rates"),sep="\t");
+	ends=map.getValue("ends");
+	rates = map.getValue("rates")*1e-8;
+	initializeRecombinationRate(rates, ends);
+	
+	
+	
+	
+	
+}
+
+// create a population of 500 individuals
+1 late() {
+	
+	//record seed information
+	writeFile("02seed_pleiotrpic_effects.log",paste0(num_snp,"_targets_",ispleiotropy,"_",per_lab,"lab_set",set,"\t",getSeed()),append=T);
+	
+	
+	//load genotypes
+	sim.addSubpop("p0",1000);
+	//	if (R==0.5){
+	p0.genomes.readFromVCF(paste0("0files/01vcffile/chr2L_100k.vcf"));
+	
+	
+	muts=sample(sim.mutations,asInteger(num_snp));
+	num_lab=asInteger(asInteger(num_snp)*asFloat(per_lab));
+	num_temp=asInteger(asInteger(asInteger(num_snp)-num_lab)/2);
+	muts_lab=muts[0:(num_lab-1)];
+	muts_23=muts[num_lab:(num_lab+num_temp-1)];
+	muts_2818=muts[(num_lab+num_temp):(asInteger(num_snp)-1)];
+	
+	//add pleiotropic effects to biallelic loci
+	filename=paste0("0files/02pleiotropic_effects/",num_snp,"_targets_",ispleiotropy,"_",per_lab,"lab_effects_set",set,".txt");
+	writeFile(filename,"position\te_lab\te_23\te_2818");
+	
+	
+	
+	//To make sure that the number of selection target are similar between pleio and non-pleio simulations, 2/3 of pleiotrpic sites are masked to be 0.0    
+	//sample_muts=sample(muts.position,asInteger(asInteger(num_snp)));
+	for (mut in muts){
+		pos=mut.position;
+		if (match(mut,muts_lab)>=0){effects=c(rnorm(1,0.0,1.0),0.0,0.0);}
+		else if (match(mut,muts_23)>=0){effects=c(0.0,rnorm(1,0.0,1.0),0.0);}
+		else if (match(mut,muts_2818)>=0){effects=c(0.0,0.0,rnorm(1,0.0,1.0));}
+		mut.setValue("e_lab", effects[0]);
+		mut.setValue("e_23", effects[1]);
+		mut.setValue("e_2818", effects[2]);
+		writeFile(filename,paste(mut.position,mut.getValue("e_lab"),mut.getValue("e_23"),mut.getValue("e_2818"),sep="\t"), append=T);
+	}
+
+
+
+
+
+}
+
+
+
+
+
+
+
+
+
+
+

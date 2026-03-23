@@ -1,0 +1,111 @@
+// set up a simple neutral simulation
+initialize() {
+	if (exists("slimgui")){
+		setwd("/Users/cxiao/my_project/fluctuation_constant/23_slim_simulation_pleiotropy/simulation9_SNP_density/01ILS");
+		defineConstant("ispleiotropy","pleio");
+		defineConstant("set",'1');
+		//defineConstant("R",1e-8);
+		//defineConstant("linkage","LD");
+		defineConstant("num_snp",'1000');
+		//defineConstant("filename","02pleiotropy_effects.txt");
+	};
+	//setSeed(100);
+	
+	//defineConstant("seq_len", 1e+6); //10Mb length
+	
+	defineConstant("seq_len",2500000);
+	
+	defineConstant("mu", 0);
+	
+	initializeTreeSeq(); //turn on tree sequencing recording
+	
+	initializeMutationRate(mu);
+	initializeSex("A"); //autosome	
+	
+	// m1 mutation type: neutral
+	initializeMutationType("m1", 0.5, "f", 0.0);
+	
+	// g1 genomic element type: uses m1 for all mutations
+	initializeGenomicElementType("g1", m1, 1.0);
+	
+	// simulation on chr2L
+	initializeGenomicElement(g1, 0, seq_len-1);
+	
+	//recombination rate
+	map=readCSV("0files/01vcffile/chr2L_rec.txt",c("ends","rates"),sep="\t");
+	ends=map.getValue("ends");
+	rates = map.getValue("rates")*1e-8;
+	initializeRecombinationRate(rates, ends);
+	
+	
+	
+	
+	// QTL-related constants used below, paramters for pleiotropy loci
+	defineConstant("QTL_mu", c(0, 0,0)); // mean effect size for each trait
+	//defineConstant("QTL_cov", 0.25); //covaraince between lab and temperature(23, 2818);
+	defineConstant("QTL_sigma", matrix(c(1.0,0.0,0.0,
+		0.0,1.0,-0.99,
+		0.0, -0.99, 1.0),
+		nrow=3));
+	
+	
+	catn("\nQTL DFE means: ");
+	print(QTL_mu);
+	catn("\nQTL DFE variance-covariance matrix: ");
+	print(QTL_sigma);
+}
+
+// create a population of 1000 individuals
+1 late() {
+	
+	//record seed information
+	writeFile("02seed_pleiotrpic_effects.log",paste0(num_snp,"_targets_",ispleiotropy,"_set",set,"\t",getSeed()),append=T);
+	
+	
+	//load genotypes
+	sim.addSubpop("p0",1000);
+	p0.genomes.readFromVCF(paste0("0files/01vcffile/chr2L_100k.vcf"));
+	
+	
+	muts=sample(sim.mutations,asInteger(num_snp));
+	
+	//add pleiotropic effects to biallelic loci
+	filename=paste0("0files/02pleiotropic_effects/",num_snp,"_targets_",ispleiotropy,"_effects_set",set,".txt");
+	writeFile(filename,"position\te_lab\te_23\te_2818");
+	
+	
+	//To make sure that the number of selection target are similar between pleio and non-pleio simulations, 2/3 of pleiotrpic sites are masked to be 0.0    
+	sample_muts=sample(muts.position,asInteger(asInteger(num_snp)/3));
+	
+	for (mut in muts){
+		pos=mut.position;
+		if (ispleiotropy=="pleio"){
+			if (match(pos,sample_muts)>=0){effects=rmvnorm(1, QTL_mu, QTL_sigma);}
+			else {effects=c(0.0,0.0,0.0);}
+		}
+		if (ispleiotropy=="nopleio"){
+			effects=rmvnorm(1, QTL_mu, QTL_sigma);
+			bob=sample(c(0,1,2),2);
+			effects[bob[0]]=0.0;
+			effects[bob[1]]=0.0;
+		}
+		mut.setValue("e_lab", effects[0]);
+		mut.setValue("e_23", effects[1]);
+		mut.setValue("e_2818", effects[2]);
+		
+		writeFile(filename,paste(mut.position,mut.getValue("e_lab"),mut.getValue("e_23"),mut.getValue("e_2818"),sep="\t"), append=T);
+	}
+}
+
+
+
+
+
+
+
+
+
+
+
+
+

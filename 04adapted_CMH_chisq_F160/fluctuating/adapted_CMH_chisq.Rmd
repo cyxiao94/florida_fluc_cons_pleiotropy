@@ -1,0 +1,231 @@
+---
+title: "adapted_CMH_chisq_fluctuating_F0_F160"
+author: "Changyi"
+date: "2024-03-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#library packages
+```{r}
+require(poolSeq)
+require(data.table)
+require(dplyr)
+require(tidyr)
+require(IHW)
+require(ACER)
+require(fdrtool)
+library(gridExtra)
+library(grid)
+require(mclust)
+library(tibble)
+```
+
+
+##intial parameters-------
+```{r}
+input_gen=c(0,160)
+t_gen=160
+input_rep=5
+chromosomes=c("2L","2R","3L","3R","4","X")
+```
+
+
+
+
+#1. extract target information--------------
+```{r}
+##extract target generation 
+#list_no_var <- NULL
+for (chr in chromosomes){
+  sync_todo<-as_tibble(fread(file = paste0("../../00genomic_data/00",chr, ".all.sync.gz"), 
+                             h = F, stringsAsFactors = F, sep = "\t"))
+  colnames(sync_todo)<-c("CHR","POS","REF",
+                          paste0(c(rep("anc",5),rep("cons",35),rep("fluc",35)),
+                                 "_F",rep(c(0,10,20,30,40,50,60,160,10,20,30,40,50,60,160),each=5),
+                                 "_r",rep(1:5,15)))
+  sync_todo<-subset(sync_todo, 
+                    select = c("CHR","POS","REF",
+                                paste0(c(rep("anc",5),rep("fluc",5)),
+                                       "_F",rep(input_gen, each=5),
+                                       "_r",rep(1:5,2))))
+  fwrite(sync_todo, nThread = 10,
+         file = paste0("01.F0_F160.",chr, ".filtered.fluc.q20.no_0cov.sync.gz"),
+         col.names = FALSE, row.names = FALSE, quote = FALSE, sep= "\t")
+  rm(sync_todo);
+  }
+
+```
+#2.data filtering
+```{r}
+##note
+##remove site with no change in af(0 variance)
+##remove site contain NA
+
+list_no_var <- NULL
+  for (chr in chromosomes){
+    sync <- read.sync(file = paste0("01.F0_F160.",chr, ".filtered.fluc.q20.no_0cov.sync.gz"), 
+                      gen = rep(input_gen, each=5), 
+                      repl = rep(c(1:input_rep),2), polarization = "rising")
+    sync_todo<-as_tibble(fread(file = paste0("01.F0_F160.",chr, ".filtered.fluc.q20.no_0cov.sync.gz"), 
+                            h = F, stringsAsFactors = F, sep = "\t"))
+    freqf <- af(sync, gen = rep(input_gen,each=5), repl = rep(c(1:input_rep),2)); col_freq <- colnames(freqf)
+    pos <-  splitLocusID(rownames(freqf))
+    var <- apply(freqf, 1, function(x) var(na.omit(x)))
+    ind1 <- which(var == 0)
+    ind2<-which(rowSums(is.na(freqf))>0)
+    ind<-sort(union(ind1,ind2))
+    if (length(ind) != 0) {
+      pos_keep<-pos$pos[-ind]
+      sync_todo<-subset(sync_todo, V2 %in% pos_keep)
+      rm(pos_keep)}
+    fwrite(sync_todo, nThread = 10,
+           file = paste0("02noNA.no_0var.F0_F160.",chr, ".filtered.fluc.q20.no_0cov.sync.gz"),
+           col.names = FALSE, row.names = FALSE, quote = FALSE, sep= "\t")
+    rm(sync);rm(sync_todo);rm(freqf);rm(pos);rm(ind);rm(var);rm(chr)
+  }
+```
+
+#3. estimate Ne-------------
+```{r}
+## autosome---------
+med_Ne_auto=NULL
+af=NULL;cov=NULL
+for (chr in c("2L","2R","3L","3R","4")){
+  sync<-read.sync(file=paste0("02noNA.no_0var.F0_F160.",chr,".filtered.fluc.q20.no_0cov.sync.gz"),
+                  gen = rep(input_gen, each = input_rep), repl = rep(1:input_rep, 2), polarization = "rising")
+  af=rbind(af, as.data.frame(af(sync, gen = input_gen, repl = 1:input_rep)))
+  cov=rbind(cov, as.data.frame(coverage(sync, gen = input_gen, repl = 1:input_rep)))
+  }
+NB_trials <- 100
+off <- 1
+nb_obs <- dim(af)[1]
+#ne <- NULL
+for (i in 1:input_rep){
+  ne=NULL;
+  for(j in 1:NB_trials){
+    set.seed(off)
+    ind <- sample(x = 1:nb_obs, size = 1000)
+    ne <- rbind(ne, data.frame(trial = j,
+                               ne = estimateNe(p0 = af[ind,paste0("F0.R",i,".freq")], pt = af[ind,paste0("F160.R",i,".freq")], 
+                                               cov0 = cov[ind,paste0("F0.R",i,".cov")], covt = cov[ind,paste0("F160.R",i,".cov")],
+                                               t = t_gen, ploidy=2, truncAF=0.05, method=c("P.planI"), 
+                                               poolSize=rep(600, times=2), Ncensus=1250)))
+    off <- off+1
+    }
+  Ne <- median(ne$ne)
+  ind <- which(is.na(ne$ne) | ne$ne<0)
+  if(length(ind)>0){ne <- ne[-ind, ]}
+  med_Ne_auto<-c(med_Ne_auto,round(median(ne$ne)))
+}
+rm(af);rm(cov);rm(ne);rm(sync);rm(chr);rm(i);rm(ind);rm(j);rm(nb_obs);rm(NB_trials);rm(Ne);rm(off)
+##X chromosome-----------------
+med_Ne_X=NULL
+sync<-read.sync(file="02noNA.no_0var.F0_F160.X.filtered.fluc.q20.no_0cov.sync.gz", 
+                gen = rep(input_gen, each = input_rep), repl = rep(1:input_rep, 2), polarization = "rising")
+af=as.data.frame(af(sync, gen = input_gen, repl = 1:input_rep))
+cov=as.data.frame(coverage(sync, gen = input_gen, repl = 1:input_rep))
+for (i in 1:input_rep){
+  ne=NULL
+  NB_trials <- 100
+  off <- 1
+  nb_obs <- dim(af)[1]
+  for(j in 1:NB_trials){
+    set.seed(off)
+    ind <- sample(x = 1:nb_obs, size = 1000)
+    ne <- rbind(ne, data.frame(trial = j,
+                               ne = estimateNe(p0 = af[ind,paste0("F0.R",i,".freq")], pt = af[ind,paste0("F160.R",i,".freq")], 
+                                               cov0 = cov[ind,paste0("F0.R",i,".cov")], covt = cov[ind,paste0("F160.R",i,".cov")],
+                                               t = t_gen, ploidy=2, truncAF=0.05, method=c("P.planI"), 
+                                               poolSize=rep(600, times=2), Ncensus=1250)))
+    off <- off+1
+    }
+  Ne <- median(ne$ne)
+  ind <- which(is.na(ne$ne) | ne$ne<0)
+  if(length(ind)>0){ne <- ne[-ind, ]}
+  med_Ne_X<-c(med_Ne_X,round(median(ne$ne)))
+}
+rm(af);rm(cov);rm(ne);rm(sync);rm(i);rm(ind);rm(j);rm(nb_obs);rm(NB_trials);rm(Ne);rm(off)
+fwrite(data.frame(med_Ne_auto,med_Ne_X),file="Ne.log", quote=F, sep='\t')
+```
+
+#4. adapted CMH-----------
+```{r}
+cmh_p<-NULL
+p_list<-NULL
+locus<-NULL
+##autosome
+for (chr in c("2L", "2R", "3L", "3R","4")){
+  sync<-read.sync(file=paste0("02noNA.no_0var.F0_F160.",chr,".filtered.fluc.q20.no_0cov.sync.gz"), 
+                  gen = rep(input_gen, each = input_rep), repl = rep(1:input_rep, 2), polarization ="rising")
+  freqf=as.matrix(af(sync, gen = rep(input_gen,each=input_rep), repl = rep(1:input_rep,2)))
+  cov=as.matrix(coverage(sync, gen = rep(input_gen,each=input_rep), repl = rep(1:input_rep,2)))
+  p.values<-adapted.cmh.test(freq = freqf, coverage = cov, Ne = med_Ne_auto, gen = input_gen, repl = 1:input_rep, poolSize = rep(600,ncol(freqf)))
+  p_list<-c(p_list, p.values)
+  locus<-rbind(locus, splitLocusID(rownames(freqf)))}
+
+##X chromosome
+sync<-read.sync(file="02noNA.no_0var.F0_F160.X.filtered.fluc.q20.no_0cov.sync.gz", 
+                gen = rep(input_gen, each = input_rep), repl = rep(1:input_rep, 2), polarization = "rising")
+freqf=as.matrix(af(sync, gen = rep(input_gen,each=input_rep), repl = rep(1:input_rep,2)))
+cov=as.matrix(coverage(sync, gen = rep(input_gen,each=input_rep), repl = rep(1:input_rep,2)))
+p.values<-adapted.cmh.test(freq = freqf, coverage = cov, Ne = med_Ne_X, gen = input_gen, repl = 1:input_rep, poolSize = rep(600,ncol(freqf)))
+p_list<-c(p_list, p.values)
+locus<-rbind(locus, splitLocusID(rownames(freqf)))
+
+#FDR multiple testing correction
+adj_p<-p.adjust(p_list,method = "fdr", n=length(p_list))
+cmh_p<-cbind(locus, p_list, adj_p)
+colnames(cmh_p)<-c("chr","pos","p","adj_p")
+fwrite(cmh_p, "CMH.result.gz", quote = F, sep = "\t", row.names = F)
+
+```
+
+
+#5. Chisq test----------
+```{r}
+chisq_p<-NULL
+locus<-NULL
+##autosome----------
+p.values_result<-NULL
+freqf<-NULL
+cov<-NULL
+for (chr in c("2L", "2R", "3L", "3R","4")){
+  sync<-read.sync(file=paste0("02noNA.no_0var.F0_F160.",chr,".filtered.fluc.q20.no_0cov.sync.gz"),
+                  gen = rep(input_gen, each = input_rep), repl = rep(1:input_rep, 2), polarization = "rising")
+  p.values_result<-NULL
+  for (t_rep in 1:input_rep){
+    freqf=as.matrix(af(sync, gen = input_gen, repl = t_rep))
+    cov=as.matrix(coverage(sync, gen = input_gen, repl = t_rep))
+    p.values<-adapted.chisq.test(freq = freqf, coverage = cov, Ne = med_Ne_auto[t_rep], gen = input_gen, poolSize = rep(600,ncol(freqf)))
+    p.values_result<-cbind(p.values_result, p.values)
+    }
+  p.values_result<-cbind(splitLocusID(rownames(freqf)),p.values_result)
+  chisq_p<-rbind(chisq_p,p.values_result)
+}
+
+##X chromsome---------
+sync<-read.sync(file="02noNA.no_0var.F0_F160.X.filtered.fluc.q20.no_0cov.sync.gz", 
+                gen = rep(input_gen, each = input_rep), repl = rep(1:input_rep, 2), polarization = "rising")
+p.values_result<-NULL
+for (t_rep in 1:input_rep){
+  freqf=as.matrix(poolSeq::af(sync, gen = rep(input_gen,each=input_rep), repl = rep(t_rep,2)))
+  cov=as.matrix(poolSeq::coverage(sync, gen = rep(input_gen,each=input_rep), repl = rep(t_rep,2)))
+  p.values<-adapted.chisq.test(freq = freqf, coverage = cov, Ne = med_Ne_X[t_rep], gen = input_gen, poolSize = rep(600,ncol(freqf)))
+  #adj_p<-p.adjust(p.values,method = "fdr", n=length(p.values))
+  p.values_result<-cbind(p.values_result, p.values)}
+p.values_result<-cbind(splitLocusID(rownames(freqf)), p.values_result)
+#p.values<-cbind(p.values,adj_p,splitLocusID(rownames(af)))
+chisq_p<-rbind(chisq_p,p.values_result)
+colnames(chisq_p)<-c("chr","pos","r1_p","r2_p","r3_p","r4_p","r5_p")
+chisq_p$r1_adj_p<-p.adjust(chisq_p$r1_p,method = "fdr", n=nrow(chisq_p))
+chisq_p$r2_adj_p<-p.adjust(chisq_p$r2_p,method = "fdr", n=nrow(chisq_p))
+chisq_p$r3_adj_p<-p.adjust(chisq_p$r3_p,method = "fdr", n=nrow(chisq_p))
+chisq_p$r4_adj_p<-p.adjust(chisq_p$r4_p,method = "fdr", n=nrow(chisq_p))
+chisq_p$r5_adj_p<-p.adjust(chisq_p$r5_p,method = "fdr", n=nrow(chisq_p))
+fwrite(chisq_p, "Chisq.result.gz", quote = F, sep = "\t", row.names = F)
+```
+

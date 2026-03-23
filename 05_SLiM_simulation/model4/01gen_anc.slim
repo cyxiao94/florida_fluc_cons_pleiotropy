@@ -1,0 +1,40 @@
+// set up a simple neutral simulation
+initialize() {
+	if (exists("slimgui")){
+		setwd("/Users/cxiao/my_project/fluctuation_constant/23_slim_simulation_pleiotropy/simulation7_simplified_model");
+	}
+	initializeMutationRate(0);
+	
+	// m1 mutation type: neutral
+	initializeMutationType("m1", 0.5, "f", 0.0);
+	
+	// g1 genomic element type: uses m1 for all mutations
+	initializeGenomicElementType("g1", m1, 1.0);
+	
+	//D.sim chromosome 2L(21Mb)
+	initializeGenomicElement(g1, 0, 21080000);
+	//initializeRecombinationRate(1e-8);
+	map=readCSV("0files/01vcffile/chr2L_rec.txt",c("ends","rates"),sep="\t");
+        ends=map.getValue("ends");
+        rates = map.getValue("rates")*1e-8;
+        initializeRecombinationRate(rates, ends);
+}
+
+// create a population of 1000 individuals
+1 late() {
+	sim.addSubpop("p1", 1000);
+	
+	f_site=readCSV("0files/01vcffile/chr2L_pos.txt",c("chr","sites"),sep="\t");
+	sites=f_site.getValue("sites")-1;
+	
+	for (site in sites){
+		geno=sample(p1.individuals.genomes,200);
+		geno.addNewDrawnMutation(m1,site);
+	}
+	
+	p1.genomes.outputVCF("0files/01vcffile/chr2L.vcf");
+
+}
+
+// output samples of 10 genomes periodically, all fixed mutations at end
+2 late() {}

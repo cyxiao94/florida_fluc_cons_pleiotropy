@@ -1,0 +1,399 @@
+---
+title: "chisq_test_analysis"
+author: "Changyi"
+date: "2026-02-09"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(poolSeq)
+library(data.table)
+library(ggsignif)
+library(ggpubr)
+library(corrplot)
+
+col_anc<-"#6e326e"
+col_cons<-"#4fc0c6"
+col_fluc<-"#e8a11c"
+
+```
+
+# 1. load data
+```{r}
+#chisq results
+##fluctuating
+chisq_fluc<-fread("../../00data/genomic_data/fluctuating_F0_F60_Chisq.result.gz", 
+                  select = c("chr","pos","r1_adj_p", "r2_adj_p","r3_adj_p","r4_adj_p","r5_adj_p"))
+colnames(chisq_fluc)<-c("chr","pos",
+                        paste0("Fluctuating_R", 1:5))
+##constant
+chisq_cons<-fread("../../00data/genomic_data/constant_F0_F60_Chisq.result.gz", 
+                  select = c("chr","pos","r1_adj_p", "r2_adj_p","r3_adj_p","r4_adj_p","r5_adj_p"))
+colnames(chisq_cons)<-c("chr","pos",
+                        paste0("Constant_R", 1:5))
+
+#combine results
+chisq_comb<-merge(chisq_fluc, chisq_cons, by = c("chr", "pos"), all = TRUE)
+#re-fill NA with 1. Those SNPs were filtered out when performing treatment specific test, as they don't change allele frequency in the focal population
+cols_to_fill <- setdiff(names(chisq_comb), c("chr","pos"))
+invisible(chisq_comb[, (cols_to_fill) := lapply(.SD, function(x) fifelse(is.na(x), 1.0000, x)), .SDcols = cols_to_fill])
+
+#focus on the SNPs show significant
+chisq_sig <- chisq_comb[
+  chisq_comb[, do.call(pmin, .SD) < 0.05, .SDcols = cols_to_fill]
+]
+
+#check in which population that SNPs signifaicnt
+##constant -- at least 1 replicates from constant populations have FDR p-value < 0.05, but none of the fluctuating replicates
+##fluctuating -- at least 1 replicates from fluctuating populations have FDR p-value < 0.05, but none of the constant replicates
+##constant -- both constant and fluctuating replicate have FDR p-value < 0.05
+fluc_cols <- grep("Fluctuating",colnames(chisq_sig), value = TRUE)
+cons_cols <- grep("Constant",colnames(chisq_sig), value = TRUE)
+
+invisible(chisq_sig[, Significance := {
+  sig_fluc <- rowSums(.SD[, ..fluc_cols] <0.05) > 0
+  sig_cons <- rowSums(.SD[, ..cons_cols] <0.05) > 0
+  
+  fifelse(sig_fluc & !sig_cons, "Fluctuating",
+          fifelse(sig_cons & !sig_fluc, "Constant",
+                  fifelse(sig_fluc & sig_cons, "both", "none"))) #there should be no "none" as they were filtered out
+  
+}])
+
+invisible(chisq_sig[, loci := paste0(chr, ".", pos)])
+fwrite(chisq_sig,file = "Chisq_result_sigSNP_fluc_cons.txt.gz",quote = FALSE, sep="\t")
+rm(chisq_cons,chisq_fluc,chisq_comb,cols_to_fill, cons_cols, fluc_cols)
+```
+
+
+```{r}
+#load af information
+sync_file <- read.sync(file = "../../00data/genomic_data/F0_anc.F10-F60_F160_cons.F10-F60_F160_fluc.5rep.sync.gz", 
+                  gen = rep(c(0,10,20,30,40,50,60,160,210,220,230,240,250,260,360), each = 5),
+                  repl = rep(c(1,2,3,4,5), times = 15),
+                  polarization = "minor")
+af <- poolSeq::af(sync_file, gen = c(0,60,260), repl = 1:5) #F0, F60 cons and F60 fluctuating(marked as F260)
+#keep only significant snps
+af_sig <- as.data.table(af[rownames(af) %in% chisq_sig$loci,], keep.rownames = TRUE)
+setnames(af_sig, old = "rn",new = "loci")
+setnames(af_sig, old = paste0("F0.R",1:5,".freq"),
+         new = paste0("Anc_F0.R",1:5,".freq"))
+setnames(af_sig, old = paste0("F60.R",1:5,".freq"),
+         new = paste0("Cons_F60.R",1:5,".freq"))
+setnames(af_sig, old = paste0("F260.R",1:5,".freq"),
+         new = paste0("Fluc_F60.R",1:5,".freq"))
+#cons
+for (i in 1:5){
+  af_sig[, paste0("AFC_cons_r",i) := get(paste0("Cons_F60.R",i,".freq"))-get(paste0("Anc_F0.R",i,".freq"))]
+}
+#fluc
+for (i in 1:5){
+  af_sig[, paste0("AFC_fluc_r",i) := get(paste0("Fluc_F60.R",i,".freq"))-get(paste0("Anc_F0.R",i,".freq"))]
+}
+
+
+
+fwrite(af_sig, file="Chisq_sig_SNP_af.txt.gz", quote = FALSE, sep="\t", )
+#fwrite(afc, file = "Chisq_sig_SNP_AFC.txt.gz", quote = FALSE, sep = "\t")
+rm(sync_file)
+rm(af,af_sig,i)
+
+```
+
+#2. AFC distribution
+```{r}
+#extract AFC
+summary_info<-merge(af_sig, chisq_sig, by = "loci")
+fluc_cols <- grep("^AFC_fluc",names(summary_info), value = TRUE)
+cons_cols <- grep("^AFC_cons",names(summary_info), value = TRUE)
+
+invisible(summary_info[, `:=` (
+  median_fluc = apply(.SD[, ..fluc_cols], 1, median, na.rm = TRUE),
+  median_cons = apply(.SD[, ..cons_cols], 1, median, na.rm = TRUE)
+) ])
+#summary_info[, consistency := fifelse(median_fluc*median_cons>0, 1, -1)]
+
+
+```
+##2.1 SNPs significant in the fluctuating population
+```{r}
+afc_info<-summary_info[Significance == "Fluctuating", c("loci","median_fluc", "median_cons", "Significance")]
+#polarize SNPs to increase frequency in the focal environment
+rows_to_flip <- afc_info$median_fluc<0
+
+afc_cols <- c("median_fluc","median_cons") 
+invisible(afc_info[rows_to_flip, (afc_cols) := lapply(.SD, function(x) -x), .SDcols = afc_cols])
+dt_afc<-melt(afc_info, measure.vars = c("median_cons","median_fluc"), na.rm = TRUE)
+invisible(dt_afc[, environment := fifelse(variable=="median_cons", "Constant", "Fluctuating")])
+
+p_fluc<-ggplot(dt_afc, aes(x = value, fill = environment))+
+  geom_density(trim = TRUE, alpha = 0.3)+
+  scale_fill_manual(values = c("#4fc0c6","#ea811c"))+
+  geom_vline(
+    xintercept = c(median(afc_info$median_cons, na.rm = TRUE), median(afc_info$median_fluc, na.rm = TRUE)),
+    linetype="dashed", color=c("#4fc0c6","#ea811c")
+    ) +
+  labs(
+    x="Median Allele Frequency Change",
+    y="Density",
+    title="SNPs significant in the Fluc population"
+    ) +
+  xlim(c(-1,1))+ylim(c(0,15))+
+  theme_bw()+
+  theme(legend.position = 'none')
+plot(p_fluc)
+```
+##2.2 SNPs significant in the constant population
+```{r}
+afc_info<-summary_info[Significance == "Constant", c("loci","median_fluc", "median_cons", "Significance")]
+#polarize SNPs to increase frequency in the focal environment
+rows_to_flip <- afc_info$median_cons<0
+
+afc_cols <- c("median_fluc","median_cons") 
+invisible(afc_info[rows_to_flip, (afc_cols) := lapply(.SD, function(x) -x), .SDcols = afc_cols])
+dt_afc<-melt(afc_info, measure.vars = c("median_cons","median_fluc"), na.rm = TRUE)
+invisible(dt_afc[, environment := fifelse(variable=="median_cons", "Constant", "Fluctuating")])
+
+p_cons<-ggplot(dt_afc, aes(x = value, fill = environment))+
+  geom_density(trim = TRUE, alpha = 0.3)+
+  scale_fill_manual(values = c("#4fc0c6","#ea811c"))+
+  geom_vline(
+    xintercept = c(median(afc_info$median_cons, na.rm = TRUE), median(afc_info$median_fluc, na.rm = TRUE)),
+    linetype="dashed", color=c("#4fc0c6","#ea811c")
+    ) +
+  labs(
+    x="Median Allele Frequency Change",
+    y="Density",
+    title="SNPs significant in the Cons population"
+    ) +
+  xlim(c(-1,1))+ylim(c(0,15))+
+  theme_bw()+
+  theme(legend.position = 'none')
+plot(p_cons)
+```
+##2.3 combine plot
+```{r}
+p_merge<-ggarrange(p_fluc,p_cons,nrow=2, common.legend = TRUE)
+ggsave("Chisq_median_AFC_distribution.pdf", plot=p_merge, width=8,height = 5)
+
+```
+
+#3. AFC correlation
+##3.1 corr matrix
+```{r}
+
+#cor_col=colorRampPalette(c("#86C082", "#FBE992", "#F7D28A", "#F2BA83", "#EDA37D", "#EB8C77", "#E87671"))
+cor_col=colorRampPalette(c("#86C082", "#F2BA83", "#E87671"))
+afc_cor_pair <- data.table()
+pdf("Chisq_AFC_corrplot.pdf", width=15, height = 15)
+afc_cols <- grep("^AFC", names(af_sig), value = TRUE)
+afc_cor<-cor(af_sig[, ..afc_cols],
+             method = "pearson", use = "pairwise.complete.obs")
+diag(afc_cor)<-NA
+corrplot(afc_cor, is.corr = FALSE,diag = FALSE, type = "full",
+         method = 'color', tl.col = 'darkred', tl.pos = "d", tl.cex = 0.8, col = cor_col(120), col.lim = c(-0.2,0.2)) 
+corrplot(afc_cor, add = TRUE, is.corr = FALSE, diag = FALSE, type = "full",
+         method = 'number',  col = 'black', bg=NULL, cl.pos = 'n', number.cex = 0.7, number.digits = 3, tl.pos = 'n', col.lim = c(-0.2,0.2)) 
+dev.off()
+```
+
+
+##3.2 boxplot
+```{r}
+pairs <- which(upper.tri(afc_cor), arr.ind = TRUE)
+afc_cor_pair <- data.table(
+  sample1 = colnames(afc_cor)[pairs[,1]],
+  sample2 = colnames(afc_cor)[pairs[,2]],
+  correlation = afc_cor[pairs])
+
+extract_parts <- function(x){
+    parts <- tstrsplit(x, "_")
+    list(envir = parts[[2]], rep = parts[[3]])
+    }
+
+afc_cor_pair[, c("sample1_envir", "sample1_rep") := extract_parts(sample1)]
+afc_cor_pair[, c("sample2_envir", "sample2_rep") := extract_parts(sample2)]
+afc_cor_pair[, category1 := fifelse(sample1_envir == sample2_envir, "within_treatment", "between_treatment")]
+afc_cor_pair[, category1 := factor(category1)]
+
+afc_cor_pair[, category := fifelse(sample1_envir == sample2_envir, "within_treatment",
+                                     fifelse(sample1_rep == sample2_rep & sample1_envir != sample2_envir, "same_replicate","between_treatment"))]
+afc_cor_pair[, category := factor(category, levels = c("same_replicate", "within_treatment","between_treatment"))]
+
+p<- ggplot(afc_cor_pair, aes(x=category, y=correlation, fill = category))+
+    geom_boxplot()+
+    geom_signif(comparisons = list(c("between_treatment","within_treatment")),
+                                   #c("between_treatment","same_replicate"),
+                                   #c("within_treatment","same_replicate")),
+                #y_position = c(0.4,0.5,0.45),
+                map_signif_level = TRUE,
+                test = "wilcox.test", 
+                test.args = list(alternative = "less"))+
+    #facet_wrap(~focal_snp, nrow = 2)+
+    labs(title = "Allele Frequency change correlation", x = "Comparison")+
+  theme(legend.position = "none",
+        panel.background = element_rect(fill = "white", colour = "black"),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size=15),title = element_text(size=18))
+ggsave(filename = "Chisq_AFC_correlation_boxplot.pdf",plot = p, width=8,height = 5)
+```
+
+```{r}
+for (pop in c("cons","fluc")){
+  for (rep in 1:5){
+    focal_snp <- chisq[get(paste0(pop,"_r",rep))<0.05, loci]
+    afc_cols <- c(paste0("AFC_cons_r",1:5),paste0("AFC_fluc_r",1:5))
+    rep_afc<-af_sig[loci %in% focal_snp,..afc_cols]
+    setnames(rep_afc,
+             old = c(paste0("AFC_cons_r",1:5),paste0("AFC_fluc_r",1:5)),
+             new = c(paste0("cons_r",1:5),paste0("fluc_r",1:5)))
+    afc_cor<-cor(rep_afc, method = "pearson", use = "pairwise.complete.obs")
+    diag(afc_cor) <- NA
+    #pdf("plots/AFC_cor_cons_r",rep,".pdf")
+    corrplot(afc_cor, is.corr = FALSE,diag = FALSE, type = "full",
+             method = 'color', tl.col = 'darkred', tl.pos = "d", tl.cex = 0.8, col = cor_col(120), col.lim = c(-0.05,0.5)) 
+    corrplot(afc_cor, add = TRUE, is.corr = FALSE, diag = FALSE, type = "full",
+             method = 'number',  col = 'black', bg=NULL, cl.pos = 'n', number.cex = 0.7, number.digits = 3, tl.pos = 'n', col.lim = c(-0.05,0.4)) 
+    title(paste0(pop,"_r",rep))
+    #corrplot(afc_cor, method = "color", type = "upper", diag = FALSE)
+             #lower = 'number', lower.col = 'black', number.cex=0.6,
+             #       upper = 'shade',  cl.lim = c(-0.5,1),
+            #        tl.pos = 'lt', diag = 'n')
+    #dev.off()
+    pairs <- which(upper.tri(afc_cor), arr.ind = TRUE)
+    temp_afc_cor_pair <- data.table(
+      focal_snp = paste0(pop,"_r",rep),
+      sample1 = colnames(afc_cor)[pairs[,1]],
+      sample2 = colnames(afc_cor)[pairs[,2]],
+      correlation = afc_cor[pairs])
+    afc_cor_pair<-rbind(afc_cor_pair, temp_afc_cor_pair)
+  }
+}
+dev.off()
+
+
+
+```
+
+#4. compare the absolute AFC distribution
+
+##4.1 statistical test
+```{r}
+summary_info<-merge(af_sig, chisq_sig, by = "loci")
+fluc_cols <- grep("^AFC_fluc",names(summary_info), value = TRUE)
+cons_cols <- grep("^AFC_cons",names(summary_info), value = TRUE)
+
+summary_info[, `:=` (
+  median_fluc = apply(.SD[, ..fluc_cols], 1, median, na.rm = TRUE),
+  median_cons = apply(.SD[, ..cons_cols], 1, median, na.rm = TRUE)
+) ]
+#summary_info[, consistency := fifelse(median_fluc*median_cons>0, 1, -1)]
+
+summary_info[, `:=` (
+  abs_median_fluc = abs(median_fluc),
+  abs_median_cons = abs(median_cons)
+)]
+
+
+
+##permutation test for the variance
+perm_test <- function(DT, value_col,
+                      alternative = c("less","greater"), n_perm=10000, seed=123){
+  alternative <- match.arg(alternative)
+  set.seed(seed)
+  
+  x<-DT[Significance=="Fluctuating", get(value_col)]
+  y<-DT[Significance=="Constant", get(value_col)]
+  #observed differences
+  var_diff_obs <- var(x)-var(y) #test for the variance
+  mean_diff_obs <- mean(x) - mean(y) #test for the mean
+  median_diff_obs <- median(x) - median(y)
+
+  #combine all data
+  all_vals <-c(x,y)
+  n_x <- length(x)
+
+  #permutation
+  perm_diffs <- replicate(n_perm, {
+    perm_labels <- sample(all_vals)
+    perm_x <- perm_labels[1:n_x]
+    perm_y <- perm_labels[(n_x+1):length(all_vals)]
+    c(mean(perm_x) - mean(perm_y),
+      median(perm_x) - median(perm_y),
+      var(perm_x) - var(perm_y))
+    })
+
+  #One-sided p-value
+  mean_p <- switch(alternative,
+                    "less" = mean(perm_diffs[1,] <= mean_diff_obs),
+                    "greater" = mean(perm_diffs[1,] >= mean_diff_obs))
+  median_p <- switch(alternative,
+                    "less" = mean(perm_diffs[2,] <= median_diff_obs),
+                    "greater" = mean(perm_diffs[2,] >= median_diff_obs))
+  var_p <- switch(alternative,
+                    "less" = mean(perm_diffs[3,] <= var_diff_obs),
+                    "greater" = mean(perm_diffs[3,] >= var_diff_obs))
+  list(
+    mean_obs = mean_diff_obs,
+    mean_p = mean_p,
+    median_obs = median_diff_obs,
+    median_p = median_p,
+    var_obs = var_diff_obs,
+    var_p = var_p,
+    perm_diffs = perm_diffs
+  )
+}
+
+#test under 2818 environment
+permu_2818<-perm_test(DT = summary_info[Significance!= "both",],
+          value_col = "abs_median_fluc",
+          alternative = "greater")
+
+#test under 23 environment
+permu_23<-perm_test(DT = summary_info[Significance!= "both",],
+          value_col = "abs_median_cons",
+          alternative = "less")
+
+```
+
+##4.2 plot absolute AFC
+```{r}
+
+
+
+#AFC distribution under 2818 environments
+p_fluc<-ggplot(summary_info, aes(x=Significance, y=abs_median_fluc, fill = Significance))+
+  geom_boxplot(outlier.size = 0.3)+
+  geom_signif(comparisons = list(c("Constant","Fluctuating")),
+              annotations = "Permutation test: p < 1e-4")+
+  scale_fill_manual(values = c(col_anc, col_cons, col_fluc))+
+  labs(x="Population",y="|Median Allele Frequency Change|", title = "Evolution in 28/18")+
+  theme(legend.position = "none",
+        panel.background = element_rect(fill = alpha(col_fluc, 0.3)),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size=15),title = element_text(size=18))
+ggsave(file="Chisq_2818_medianAFC.pdf", plot = p_fluc, width = 8, height = 5)
+#AFC distribution under 23 environments
+p_cons<-ggplot(summary_info, aes(x=Significance, y=abs_median_cons, fill = Significance))+
+  geom_boxplot(outlier.size = 0.3)+
+  geom_signif(comparisons = list(c("Constant","Fluctuating")),
+              annotations = "Permutation test: p < 1e-4")+
+  scale_fill_manual(values = c(col_anc, col_cons, col_fluc))+
+  labs(x="Population",y="|Median Allele Frequency Change|", title = "Evolution in 23")+
+  theme(legend.position = "none",
+        panel.background = element_rect(fill = alpha(col_cons, 0.3)),
+        axis.text = element_text(size = 12),
+        axis.title = element_text(size=15),title = element_text(size=18))
+ggsave(file="Chisq_23_medianAFC.pdf", plot = p_cons, width = 8, height = 5)
+```
+
+
+
+
+
+

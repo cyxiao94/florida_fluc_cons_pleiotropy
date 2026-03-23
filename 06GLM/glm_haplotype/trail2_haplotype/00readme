@@ -1,0 +1,5 @@
+with updated scoring
+0 - p>0.01	
+1 - p<0.01 & afShift > 0.005	286137
+2 - p<0.0003 & afShift > 0.02	51264
+3 - p<1.5e-6 & afShift > 0.02	5160

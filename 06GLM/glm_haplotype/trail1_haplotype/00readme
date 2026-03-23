@@ -1,0 +1,5 @@
+with default scoring
+0 - p>0.2
+1 - p<0.2 & afShift > 0.005	926882
+2 - p<0.05 & afShift > 0.02	324592
+3 - p<0.01 & afShift > 0.02	281011

@@ -1,0 +1,71 @@
+---
+title: "obtain_seed"
+author: "Changyi"
+date: "2026-03-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#this script is trying to extract the seed number from SLiM simulation for reproducibility
+```{r}
+library(data.table)
+
+```
+
+
+```{r}
+
+
+add_seeds_to_model <- function(model){
+
+  #read parameter file
+  para<-fread(paste0(model, "/0parameters"))
+  para[, seed := NA_integer_]
+
+  #read simulation output folders
+  path <- paste0(model, "/out")
+  simulations <- list.dirs(path, recursive = TRUE)
+  simulations <- simulations[simulations != path]
+
+  #files with each folder
+  for (simu in simulations){
+    files <- list.files(simu, full.names = TRUE)
+  
+    #extract the set and pop information
+    freq_file <- files[1]
+    paras<-tstrsplit(freq_file,"_")
+    
+    simu_set=as.integer(gsub("set", "", paras[grep("^set", paras)])) 
+    simu_pop = as.character(gsub("\\.freq\\.gz","",paras[grep("freq\\.gz$", paras)]))
+    
+    
+    row_index <- which(para$set == simu_set & para$pop == simu_pop)
+  
+    #extract seed number
+    log_file <- files[4]
+    simu_seed<-as.integer(readLines(log_file)[2])
+  
+    #update para 
+    if (length(row_index) == 1) {
+      invisible(para[row_index, seed := simu_seed])
+    } else {
+      print("unexpected");print(row_index);
+        }
+  }
+
+  return(para)
+}
+```
+
+
+```{r}
+for (m in c("model1", "model2", "model3", "model4")){
+  model_para <- add_seeds_to_model(m)
+  fwrite(model_para, 
+         file = file.path(m,"/simulation_parameters.log"), 
+         quote = FALSE, sep="\t")
+}
+```

@@ -1,0 +1,225 @@
+// set up a simple neutral simulation
+initialize() {
+	if (exists("slimgui")){
+		setwd("/Users/cxiao/my_project/fluctuation_constant/23_slim_simulation_pleiotropy/simulation10_nopleio_proportion_lab/");
+		
+		defineConstant("num_snp","10000");
+		defineConstant("ispleiotropy","nopleio");  //pleio/nopleio
+		//defineConstant("linkage","LD");//recombination rate LD/LE
+		defineConstant("envir","fluc"); //environment for selection fluc/cons
+		defineConstant("set","1");
+		defineConstant("pop","p1"); //replicates p1-p5(fluc),p6-p10(cons)
+		defineConstant("per_lab",'0.8');
+		//defineConstant("set",1);
+		//defineConstant("outputfile",paste0("03results_"num_snp,"SNP_",ispleiotropy,"_",linkage,"_set",set,"_",pop,".freq");
+	};
+	
+	defineConstant("outputfile",paste0("03results_",num_snp,"SNP_",ispleiotropy,"_",per_lab,"lab_set",set,"_",pop,".freq"));
+	defineConstant("phenofile",paste0("03results_",num_snp,"SNP_",ispleiotropy,"_",per_lab,"lab_set",set,"_",pop,".pheno"));
+	//setSeed(100);
+	
+	//define parameters
+	
+	//defineConstant("seq_len",1e+6); //length of genome
+	defineConstant("seq_len",2500000);
+	//defineConstant("seq_len",2491390);
+	
+	defineConstant("popsize",1000);
+	defineConstant("mu",0); //mutation rate
+	
+	
+	
+	
+	initializeTreeSeq();  //turn on tree sequence recording
+	
+	initializeMutationRate(mu);
+	initializeSex("A"); //autosome
+	
+	// m1 mutation type: neutral
+	initializeMutationType("m1", 0.5, "f", 0.0);
+	//m1.convertToSubstitution=F;
+	
+	// g1 genomic element type: uses m1 for all mutations
+	initializeGenomicElementType("g1", m1, 1.0);
+	initializeGenomicElement(g1,0, seq_len-1);
+	
+	
+	
+	//recombination rate
+	map=readCSV("0files/01vcffile/chr2L_rec.txt",c("ends","rates"),sep="\t");
+	ends=map.getValue("ends");
+	rates = map.getValue("rates")*1e-8;
+	initializeRecombinationRate(rates, ends);
+	
+	
+	defineConstant("scale",1.0); //scale factor, determine min and max fitness, [0.5,1.5] when scale factor equals 1	
+	
+	writeFile(phenofile, paste("ind","generation","phenotype_lab", "phenotype_23", "phenotype_2818","effects_lab","effects_23", "effects_2818",sep="\t"));
+
+}
+
+
+
+// create a population of given(popsize) individuals for generating (pleiotropic) mutations(burn-in pahse)
+1 late() {
+	sim.addSubpop("p0",1000);
+	p0.genomes.readFromVCF(paste0("0files/01vcffile/chr2L_100k.vcf"));
+	//p0.setSubpopulationSize(1000);
+	
+	//load snp position
+	f_pos=readCSV("0files/01vcffile/chr2L_pos.txt", c("chr","pos"),sep="\t");
+	mut_positions=f_pos.getValue("pos")-1;
+	defineGlobal("mut_positions",mut_positions);
+
+	//load effect size matrix
+	lines = readCSV(paste0("0files/02pleiotropic_effects/",num_snp,"_targets_",ispleiotropy,"_",per_lab,"lab_effects_set",set,".txt"), colNames=T,sep="\t");
+	pleio_positions=lines.getValue("position");defineGlobal("pleio_positions",pleio_positions);
+	e_lab=lines.getValue("e_lab");
+	e_23=lines.getValue("e_23");
+	e_2818=lines.getValue("e_2818");
+	
+	//add pleiotrpic effects on loci
+	muts=sim.mutations;
+        for (mut in muts){
+		mut_position=mut.position;
+		index=match(mut_position,pleio_positions);
+		if (index>=0){
+			mut.setValue("e_lab",e_lab[index]);
+			mut.setValue("e_23",e_23[index]);
+			mut.setValue("e_2818",e_2818[index]);
+		}
+		else {
+                        mut.setValue("e_lab",0.0);
+                        mut.setValue("e_23",0.0);
+                        mut.setValue("e_2818",0.0);}
+	}
+	
+	//calculate frequency at generation 1
+	//temp_Counts=integer(length(mut_positions));
+	//for (geno in p0.individuals.genomes){
+	//	ind_list=match(geno.positionsOfMutationsOfType(m1),mut_positions);
+	//	ind_list=ind_list[ind_list>=0]; //pleiotropic effects only add for biallelic site, remove multiallelic loci in the Count matrix(index of -1)
+	//	temp_Counts = temp_Counts+integer(length(temp_Counts),0,1,ind_list);
+	//}
+	//Freq_F0=temp_Counts/(2*popsize);defineGlobal("Freq_F0", Freq_F0);
+	
+	//estimate ancestral phenotypic distribution and fitness function
+	inds=p0.individuals;
+	
+	pheno_lab=NULL;
+	pheno_23=NULL;
+	pheno_2818=NULL;
+	for (ind in inds){
+		muts=ind.genomes.mutations;
+		pheno_lab=c(pheno_lab,size(muts) ? sum(muts.getValue("e_lab")) else 0.0);
+		pheno_23=c(pheno_23, size(muts) ? sum(muts.getValue("e_23")) else 0.0);
+		pheno_2818=c(pheno_2818, size(muts) ? sum(muts.getValue("e_2818")) else 0.0);
+	}
+	
+	catn("Lab traits");
+	mean_lab=mean(pheno_lab);
+	sd_lab=sd(pheno_lab);
+	Fit_mean_lab=mean_lab+3*sd_lab;
+	Fit_sd_lab=sd_lab;
+	catn(paste("Phenotypic mean",mean_lab,sep=" "));
+	catn(paste("Phenotypic sd",sd_lab,sep=" "));
+	catn(paste("Fitness mean",Fit_mean_lab,sep=" "));
+	catn(paste("Fitness sd",Fit_sd_lab,sep=" "));
+	defineGlobal("Fit_mean_lab",Fit_mean_lab);
+	defineGlobal("Fit_sd_lab",Fit_sd_lab);
+	
+	catn("\n\n23 traits");
+	mean_23=mean(pheno_23);
+	sd_23=sd(pheno_23);
+	Fit_mean_23=mean_23+3*sd_23;
+	Fit_sd_23=sd_23;
+	catn(paste("Phenotypic mean",mean_23,sep=" "));
+	catn(paste("Phenotypic sd",sd_23,sep=" "));
+	catn(paste("Fitness mean",Fit_mean_23,sep=" "));
+	catn(paste("Fitness sd",Fit_sd_23,sep=" "));
+	defineGlobal("Fit_mean_23",Fit_mean_23);
+	defineGlobal("Fit_sd_23",Fit_sd_23);
+	
+	catn("\n\n2818 traits");
+	mean_2818=mean(pheno_2818);
+	sd_2818=sd(pheno_2818);
+	Fit_mean_2818=mean_2818+3*sd_2818;
+	Fit_sd_2818 = sd_2818;
+	catn(paste("Phenotypic mean",mean_2818,sep=" "));
+	catn(paste("Phenotypic sd",sd_2818,sep=" "));
+	catn(paste("Fitness mean",Fit_mean_2818,sep=" "));
+	catn(paste("Fitness sd",Fit_sd_2818,sep=" "));
+	defineGlobal("Fit_mean_2818",Fit_mean_2818);
+	defineGlobal("Fit_sd_2818",Fit_sd_2818);
+}
+
+
+
+
+
+//stabilizing selection for 60 generations
+1:61 late(){
+	
+	for (ind in sim.subpopulations.individuals)
+	{
+		muts=ind.genomes.mutations;
+		phenotype_lab = size(muts) ? sum(muts.getValue("e_lab")) else 0.0;
+		phenotype_23 = size(muts) ? sum(muts.getValue("e_23")) else 0.0;
+		phenotype_2818 = size(muts) ? sum(muts.getValue("e_2818")) else 0.0;
+		ind.setValue("phenotype_lab", phenotype_lab);
+		ind.setValue("phenotype_23", phenotype_lab);
+		ind.setValue("phenotype_2818", phenotype_2818);
+		
+		//calculate fitness effects
+		scale_lab=scale/dnorm(Fit_mean_lab,Fit_mean_lab,Fit_sd_lab);
+		effects_lab = 0.5+dnorm(phenotype_lab,Fit_mean_lab,Fit_sd_lab)*scale_lab;
+		
+		scale_23=scale/dnorm(Fit_mean_23,Fit_mean_23,Fit_sd_23);
+		effects_23 = 0.5+dnorm(phenotype_23, Fit_mean_23,Fit_sd_23)*scale_23;
+		
+		scale_2818=scale/dnorm(Fit_mean_2818,Fit_mean_2818,Fit_sd_2818);
+		effects_2818 = 0.5+dnorm(phenotype_2818, Fit_mean_2818,Fit_sd_2818)*scale_2818;
+		
+		
+		//ind.fitnessScaling=1.0;
+		if (envir=="cons"){
+			ind.fitnessScaling=effects_lab*effects_23;}
+		if (envir=="fluc"){
+			ind.fitnessScaling=effects_lab*effects_2818;}
+		
+		
+		if (sim.cycle<=6 | sim.cycle %10 ==1){
+			
+			writeFile(phenofile, paste(ind.index,sim.cycle,phenotype_lab, phenotype_23, phenotype_2818,effects_lab,effects_23, effects_2818,sep="\t"), append=T);
+			//catn(paste0("generation ",sim.cycle-1));
+		}
+	}
+	if (sim.cycle<=6 | sim.cycle %10 ==1){catn(paste0("generation ",sim.cycle-1));}
+
+	//calculate frequency every 10 generations
+	if (sim.cycle %10==1){
+		//calculate frequency every 10 generation
+		temp_Counts=integer(length(mut_positions));
+		for (geno in p0.individuals.genomes){
+			ind_list=match(geno.positionsOfMutationsOfType(m1),mut_positions);
+			ind_list=ind_list[ind_list>=0];//pleiotropic effects only add for biallelic site, remove multiallelic loci in the Count matrix(index of -1)
+			temp_Counts = temp_Counts+integer(length(temp_Counts),0,1,ind_list);
+		}
+		Freq=temp_Counts/(2*popsize);defineGlobal(paste0("Freq_F",sim.cycle-1), Freq);
+	}
+}
+
+
+
+61 late(){
+	filename=outputfile;
+	writeFile(filename,"Pos\tF0.freq\tF10.freq\tF20.freq\tF30.freq\tF40.freq\tF50.freq\tF60.freq");
+	
+	for (i in 1:length(mut_positions)-1){
+		writeFile(filename, paste(mut_positions[i],Freq_F0[i],Freq_F10[i],Freq_F20[i],Freq_F30[i],Freq_F40[i],Freq_F50[i],Freq_F60[i],sep="\t"), append=T);
+	}
+
+}
+
+
+

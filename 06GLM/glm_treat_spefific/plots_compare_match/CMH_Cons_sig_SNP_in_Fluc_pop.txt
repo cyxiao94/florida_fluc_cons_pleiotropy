@@ -1,0 +1,16 @@
+significant	category	Replicate	median_AFC	wilcox_test_greater	wilcox_test_less	parallel
+fluc	target	1	0.103916781910839	NA	NA	NA
+cons	test	1	0.0041952707856598	1.61090529706028e-262	1	Parallel
+cons	match	1	0	NA	NA	match
+fluc	target	2	0.101954418130889	NA	NA	NA
+cons	test	2	0.00451189499589801	2.60971649777058e-288	1	Parallel
+cons	match	2	0	NA	NA	match
+fluc	target	3	0.0680605873036099	NA	NA	NA
+cons	test	3	0.0127272727272727	1.21037530072533e-276	1	Parallel
+cons	match	3	0	NA	NA	match
+fluc	target	4	0.0888888888888889	NA	NA	NA
+cons	test	4	0.015	1.97761718224206e-266	1	Parallel
+cons	match	4	0	NA	NA	match
+fluc	target	5	0.103695169824202	NA	NA	NA
+cons	test	5	0.00385109114249005	3.22577452741831e-190	1	Parallel
+cons	match	5	0	NA	NA	match

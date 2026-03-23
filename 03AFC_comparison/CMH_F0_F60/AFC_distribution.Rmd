@@ -1,0 +1,320 @@
+---
+title: "AFC_distribution"
+author: "Changyi"
+date: "2024-03-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(poolSeq)
+library(ggpubr)
+library(corrplot)
+library(tidyr)
+library(car)
+```
+
+#1.extract SNPs of interested
+```{r}
+#only keep F0, constant F60, fluctuating F60
+#keep only significant SNPs
+
+#load CMH result
+cmh_sig<-fread('../../02adapted_CMH_chisq_F60/mahattan_plot/cmh_merge_sig.txt.gz')
+
+#cmh_sig<-subset(cmh_result, adj_fluc_p<0.05 | adj_cons_p<0.05)
+
+#load sync and extract target information
+sync_todo<-fread('../00data/genomic_data/F0_anc.F10-F60_F160_cons.F10-F60_F160_fluc.5rep.sync.gz')
+colnames(sync_todo)<-c("CHR","POS","REF",
+                          paste0(c(rep("anc",5),rep("cons",35),rep("fluc",35)),
+                                 "_F",rep(c(0,10,20,30,40,50,60,160,10,20,30,40,50,60,160),each=5),
+                                 "_r",rep(1:5,15)))
+sync_todo$loci<-paste(sync_todo$CHR, sync_todo$POS, sep=".")
+sync_todo1<-subset(sync_todo, loci %in% cmh_sig$loci,
+                  select = c("CHR","POS","REF",
+                             paste0(c(rep("anc",5),rep("cons",5),rep("fluc",5)),
+                                    "_F",rep(c(0,60,60),each=5),
+                                    "_r",rep(1:5,3))))
+fwrite(sync_todo1, nThread = 10,
+       file = "../00data/genomic_data/F0_F60_CMH_sig_snp.sync.gz",
+       col.names = FALSE, row.names = FALSE, quote = FALSE, sep = "\t")
+rm(cmh_result)
+rm(sync_todo);rm(sync_todo1)
+
+```
+
+
+#2.obtain allele frequency
+```{r}
+#60 represent constant population at generation 60
+#61 represent fluctuating population at generation 60
+input_gen=c(0,60,61)
+num_reps=5
+sync<-read.sync("cmh_sig_snp.sync.gz",
+          gen = rep(input_gen, each=num_reps), repl = rep(1:num_reps, 3), polarization = "minor")
+freqf<-data.frame(af(sync, gen = rep(input_gen, each=num_reps), repl = rep(1:num_reps, 3)))
+pos <- splitLocusID(rownames(freqf))
+
+
+#get AFC
+cons_afc<-data.frame(cons_AFC_R1=freqf$F60.R1.freq-freqf$F0.R1.freq,
+                     cons_AFC_R2=freqf$F60.R2.freq-freqf$F0.R2.freq,
+                     cons_AFC_R3=freqf$F60.R3.freq-freqf$F0.R3.freq,
+                     cons_AFC_R4=freqf$F60.R4.freq-freqf$F0.R4.freq,
+                     cons_AFC_R5=freqf$F60.R5.freq-freqf$F0.R5.freq)
+cons_median_afc<-apply(cons_afc, 1, median)
+cons_mean_afc<-apply(cons_afc, 1, mean)
+
+fluc_afc<-data.frame(fluc_AFC_R1=freqf$F61.R1.freq-freqf$F0.R1.freq,
+                     fluc_AFC_R2=freqf$F61.R2.freq-freqf$F0.R2.freq,
+                     fluc_AFC_R3=freqf$F61.R3.freq-freqf$F0.R3.freq,
+                     fluc_AFC_R4=freqf$F61.R4.freq-freqf$F0.R4.freq,
+                     fluc_AFC_R5=freqf$F61.R5.freq-freqf$F0.R5.freq)
+fluc_median_afc<-apply(fluc_afc, 1, median)
+fluc_mean_afc<-apply(fluc_afc, 1, mean)
+
+summary_info<-data.frame(chr=cmh_sig$chr, pos=cmh_sig$pos, loci=cmh_sig$loci,
+                         adj_fluc_p=cmh_sig$adj_fluc_p, adj_cons_p=cmh_sig$adj_cons_p,
+                         category=cmh_sig$category,
+                         cons_afc,cons_median_afc,cons_mean_afc,
+                         fluc_afc,fluc_median_afc,fluc_mean_afc)
+
+fwrite(summary_info, nThread = 10,
+       file = "summary_afc.txt.gz",
+       col.names = TRUE, row.names = FALSE, quote = FALSE, sep = "\t")
+rm(input_gen, num_reps)
+rm(sync,freqf,pos)
+rm(cons_afc, cons_mean_afc, cons_median_afc)
+rm(fluc_afc, fluc_mean_afc, fluc_median_afc)
+rm(cmh_sig, summary_info)
+```
+
+#3. median AFC distribution
+##3.1 fluctuating significant SNPs
+```{r}
+#check SNPs significant in the flucutuating population, how do they respond in the two environment
+
+#load data
+afc_info<-fread('summary_afc.txt.gz', select = c("chr","pos","category",
+                                                 "cons_median_afc","cons_mean_afc",
+                                                 "fluc_median_afc","fluc_mean_afc"))
+#extract fluctuating significant SNPs
+afc_info <- afc_info[category=="Fluctuating",]
+
+#polarize SNPs to have be positive in the focal population(increase in the fluc pop)
+rows_to_flip <- afc_info$fluc_median_afc<0
+afc_cols <- c("cons_median_afc","cons_mean_afc","fluc_median_afc","fluc_mean_afc") 
+invisible(afc_info[rows_to_flip, (afc_cols) := lapply(.SD, function(x) -x), .SDcols = afc_cols])
+
+dt_afc<-melt(afc_info, measure.vars = c("cons_median_afc","fluc_median_afc"), na.rm = TRUE)
+invisible(dt_afc[, environment := fifelse(variable=="cons_median_afc", "Constant", "Fluctuating")])
+
+
+p1<-ggplot(dt_afc, aes(x = value, fill = environment))+
+  geom_density(trim = TRUE, alpha = 0.3)+
+  scale_fill_manual(values = c("#4fc0c6","#ea811c"))+
+  geom_vline(
+    xintercept = c(median(afc_info$cons_median_afc, na.rm = TRUE), median(afc_info$fluc_median_afc, na.rm = TRUE)),
+    linetype="dashed", color=c("#4fc0c6","#ea811c")
+    ) +
+  labs(
+    x="Median Allele Frequency Change",
+    y="Density",
+    title="SNPs significant in the Fluc population"
+    ) +
+  xlim(c(-1,1))+ylim(c(0,26))+
+  theme_bw()+
+  theme(legend.position = 'none')
+plot(p1)
+```
+
+
+##3.2 constant significant SNPs
+```{r}
+#check SNPs significant in the constant population, how do they respond in the two environment
+
+#load data
+afc_info<-fread('summary_afc.txt.gz', select = c("chr","pos","category",
+                                                 "cons_median_afc","cons_mean_afc",
+                                                 "fluc_median_afc","fluc_mean_afc"))
+#extract fluctuating significant SNPs
+afc_info <- afc_info[category=="Constant",]
+
+#polarize SNPs to have be positive in the focal population(increase in the fluc pop)
+rows_to_flip <- afc_info$cons_median_afc<0
+afc_cols <- c("cons_median_afc","cons_mean_afc","fluc_median_afc","fluc_mean_afc") 
+invisible(afc_info[rows_to_flip, (afc_cols) := lapply(.SD, function(x) -x), .SDcols = afc_cols])
+
+dt_afc<-melt(afc_info, measure.vars = c("cons_median_afc","fluc_median_afc"), na.rm = TRUE)
+invisible(dt_afc[, environment := fifelse(variable=="cons_median_afc", "Constant", "Fluctuating")])
+
+p2<-ggplot(dt_afc, aes(x = value, fill = environment))+
+  geom_density(trim = TRUE, alpha = 0.3)+
+  scale_fill_manual(values = c("#4fc0c6","#ea811c"))+
+  geom_vline(
+    xintercept = c(median(afc_info$cons_median_afc,na.rm = TRUE), median(afc_info$fluc_median_afc, na.rm = TRUE)), 
+    linetype = "dashed", color=c("#4fc0c6","#ea811c")
+    )+
+  labs(
+     x = "Median Allele Frequency Change",
+     y = "Density",
+     title = "SNPs significant in the Cons population"
+    )+
+  xlim(c(-1,1))+ylim(c(0,26))+
+  theme_bw()+
+  theme(legend.position = 'none')
+plot(p2)
+```
+##3.3 combine plot
+```{r}
+p_merge<-ggarrange(p1,p2,nrow=2, common.legend = TRUE)
+ggsave("median_AFC_distribution.pdf", plot=p_merge, width=8,height = 5)
+
+```
+
+
+
+
+
+#4. AFC correlation
+```{r}
+dt<-fread('summary_afc.txt.gz',
+          select=c("cons_AFC_R1","cons_AFC_R2","cons_AFC_R3","cons_AFC_R4","cons_AFC_R5",
+                   "fluc_AFC_R1","fluc_AFC_R2","fluc_AFC_R3","fluc_AFC_R4","fluc_AFC_R5"))
+colnames(dt)<-paste0(rep(c("cons","fluc"),each=5),
+                     rep(1:5,2))
+cor_matrix<-cor(na.omit(dt))
+
+
+##  different color series
+## COL2: Get diverging colors
+COL2= c('RdBu', 'BrBG', 'PiYG', 'PRGn', 'PuOr', 'RdYlBu')
+## COL1: Get sequential colors
+## c('Oranges', 'Purples', 'Reds', 'Blues', 'Greens', 'Greys', 'OrRd', 'YlOrRd', 'YlOrBr', 'YlGn')
+
+pdf("AFC_correlation.pdf")
+corrplot(cor_matrix, order = 'original', type = 'upper', tl.pos = 'd', tl.cex = 1, col.lim = c(0,1))
+corrplot(cor_matrix, add = TRUE, type = 'lower', method = 'number', order = 'original',
+         col = 'black', diag = FALSE, tl.pos = 'n', cl.pos = 'n')
+dev.off()
+
+
+```
+
+#5. compare the absolute AFC 
+## 5.1 statistical test
+```{r}
+
+dt<-fread('summary_afc.txt.gz')
+invisible(dt[, abs_cons_median_afc := abs(cons_median_afc)])
+invisible(dt[, abs_fluc_median_afc := abs(fluc_median_afc)])
+#since the median and variance could be influenced by the direction(sign) of the AFC, we test this in the absolute scale
+##permutation test for the variance
+perm_test <- function(DT, value_col,
+                      alternative = c("less","greater"), n_perm=10000, seed=123){
+  alternative <- match.arg(alternative)
+  set.seed(seed)
+  
+  x<-na.omit(DT[category=="Fluctuating", get(value_col)])
+  y<-na.omit(DT[category=="Constant", get(value_col)])
+  #observed differences
+  var_diff_obs <- var(x)-var(y) #test for the variance
+  mean_diff_obs <- mean(x) - mean(y) #test for the mean
+  median_diff_obs <- median(x) - median(y)
+
+  #combine all data
+  all_vals <-c(x,y)
+  n_x <- length(x)
+
+  #permutation
+  perm_diffs <- replicate(n_perm, {
+    perm_labels <- sample(all_vals)
+    perm_x <- perm_labels[1:n_x]
+    perm_y <- perm_labels[(n_x+1):length(all_vals)]
+    c(mean(perm_x) - mean(perm_y),
+      median(perm_x) - median(perm_y),
+      var(perm_x) - var(perm_y))
+    })
+
+  #One-sided p-value
+  mean_p <- switch(alternative,
+                    "less" = mean(perm_diffs[1,] <= mean_diff_obs),
+                    "greater" = mean(perm_diffs[1,] >= mean_diff_obs))
+  median_p <- switch(alternative,
+                    "less" = mean(perm_diffs[2,] <= median_diff_obs),
+                    "greater" = mean(perm_diffs[2,] >= median_diff_obs))
+  var_p <- switch(alternative,
+                    "less" = mean(perm_diffs[3,] <= var_diff_obs),
+                    "greater" = mean(perm_diffs[3,] >= var_diff_obs))
+  list(
+    mean_obs = mean_diff_obs,
+    mean_p = mean_p,
+    median_obs = median_diff_obs,
+    median_p = median_p,
+    var_obs = var_diff_obs,
+    var_p = var_p,
+    perm_diffs = perm_diffs
+  )
+}
+
+#test under 2818 environment
+permu_2818<-perm_test(DT = dt[category!= "Common",],
+          value_col = "abs_fluc_median_afc",
+          alternative = "greater")
+
+#test under 23 environment
+permu_23<-perm_test(DT = dt[category!= "Common",],
+          value_col = "abs_cons_median_afc",
+          alternative = "less")
+
+```
+
+## 5.2 plot absolute AFC
+```{r}
+
+
+color_common<-"#6e326e"
+color_cons<-"#4fc0c6"
+color_fluc<-"#e8a11c"
+#under 23 environment
+p1<-ggplot(dt, aes(x=category, y=abs_cons_median_afc,fill = category))+
+  geom_boxplot(width=0.5)+
+  ylim(0,1)+
+  scale_fill_manual(values = c("#6e326e","#4fc0c6","#ea811c"))+
+  labs(x="", y="|Median allele frequency change|",title="Evolution in 23")+
+  geom_signif(comparisons = list(c("Constant","Fluctuating")),
+              annotations = "Permutation test: p < 1e-4")+
+  theme(legend.position = 'none',
+        panel.background = element_rect(fill = alpha(color_cons, 0.3)),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=15))
+  
+plot(p1)
+
+#under 2818 environment
+p2<-ggplot(dt, aes(x=category, y=abs_fluc_median_afc,fill = category))+
+  geom_boxplot(width=0.5)+
+  ylim(0,1)+
+  scale_fill_manual(values = c("#6e326e","#4fc0c6","#ea811c"))+
+  labs(x="", y="|Median Allele frequency change|",title="Evolution in 28/18")+
+  geom_signif(comparisons = list(c("Constant","Fluctuating")),
+              annotations = "Permutation test: p < 1e-4")+
+  theme(legend.position = 'none',
+        panel.background = element_rect(fill = alpha(color_fluc, 0.3)),
+        axis.text = element_text(size=12),
+        axis.title = element_text(size=15))
+#plot(p2)
+
+merge_p<-ggarrange(p1,p2, ncol=2)
+
+ggsave("Absoulte_AFC.pdf",plot = merge_p, width=10, height = 5)
+```
+
+
+

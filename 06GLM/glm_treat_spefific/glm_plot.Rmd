@@ -1,0 +1,334 @@
+---
+title: "GLM_plot"
+author: "Changyi"
+date: "2026-03-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(data.table)
+library(ggpubr)
+
+```
+
+#1. load data
+```{r}
+cols_to_load <-c("chrom","pos","coef.div","p.div","sigLevel","FDR","afShift")
+#constant pop
+glm_cons<-fread("df.sig.cons.1_7.csv.gz", select = cols_to_load)
+setnames(glm_cons,
+         old = c("coef.div","p.div","sigLevel","FDR","afShift"),
+         new = c("cons.coef.div","cons.p.div","cons.sigLevel","cons.FDR","cons.afShift"))
+#fluctuating pop
+glm_fluc<-fread("df.sig.fluc.1_7.csv.gz", select = cols_to_load)
+setnames(glm_fluc,
+         old = c("coef.div","p.div","sigLevel","FDR","afShift"),
+         new = c("fluc.coef.div","fluc.p.div","fluc.sigLevel","fluc.FDR","fluc.afShift"))
+
+
+glm_p <- merge(glm_cons, glm_fluc, by = c("chrom","pos"))
+rm(glm_cons, glm_fluc)
+
+#sig Level
+##0 FDR_P>0.2 non-sig
+##1 FDR_P<0.2 & afShift > 0.005 non-sig
+##2 FDR_P<0.05 & afShift > 0.02 sig
+##3 FDR_P<0.01 & afShift > 0.02 sig
+
+##remove non significant SNPs, and chr4
+glm_p<-glm_p[(cons.sigLevel>1 | fluc.sigLevel>1) & chrom !=4,]
+glm_p[, significant := fifelse(cons.sigLevel > 1 & fluc.sigLevel > 1, "Common",
+                           fifelse(cons.sigLevel > 1 & fluc.sigLevel <= 1, "Constant",
+                                   fifelse(cons.sigLevel <= 1 & fluc.sigLevel > 1, "Fluctuating","None")))]
+#glm_p_sig <- subset(glm_p, significant != "None" & chrom != 4)
+invisible(glm_p[, chrom := factor(chrom, levels = c("2L","2R","3L","3R","X"))])
+invisible(glm_p[, significant := factor(significant, levels = c("Fluctuating","Constant","Common"))])
+invisible(glm_p[, loci := paste0(chrom, ".",pos)])
+```
+#2. mahattan plot
+```{r}
+#flcutuating
+p_fluc<-ggplot()+
+  geom_point(data=glm_p[significant=="Fluctuating",], aes(x=pos/1000000,y=-log10(fluc.FDR), color=significant),cex = 0.1)+
+  geom_point(data=glm_p[significant=="Constant",], aes(x=pos/1000000,y=-log10(fluc.FDR), color=significant),cex = 0.1)+
+  geom_point(data=glm_p[significant=="Common",], aes(x=pos/1000000,y=-log10(fluc.FDR), color=significant),cex = 0.1)+
+  geom_hline(yintercept = -log10(0.05), color="red", linetype="dashed")+
+  scale_color_manual(values = c("#e8a11c","#4fc0c6","#6e326e"))+ #color for fluc, cons, common
+  labs(x="Position(Mb)", y="-log10(p-value)", title = "Fluctuating vs Ancestral")+
+  scale_x_continuous(breaks = seq(0,25,5))+
+  #scale_y_continuous(breaks = seq(0,20,5), limits = c(0,20))+
+  facet_wrap(~chrom, scales="free_x", space = "free_x", nrow=1)+
+  theme(legendpanel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
+        axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
+        axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")+
+  theme(legend.position = "none")
+#plot(p_fluc)
+#constant
+p_cons<-ggplot()+
+  geom_point(data=glm_p[significant=="Fluctuating",], aes(x=pos/1000000,y=-log10(cons.FDR), color=significant),cex = 0.1)+
+  geom_point(data=glm_p[significant=="Constant",], aes(x=pos/1000000,y=-log10(cons.FDR), color=significant),cex = 0.1)+
+  geom_point(data=glm_p[significant=="Common",], aes(x=pos/1000000,y=-log10(cons.FDR), color=significant),cex = 0.1)+
+  geom_hline(yintercept = -log10(0.05), color="red", linetype="dashed")+
+  scale_color_manual(values = c("#e8a11c","#4fc0c6","#6e326e"))+
+  labs(x="Position(Mb)", y="-log10(p-value)", title = "Constnat vs Ancestral")+
+  scale_x_continuous(breaks = seq(0,25,5))+
+  #scale_y_continuous(breaks = seq(0,20,5), limits = c(0,20))+
+  facet_wrap(~chrom, scales="free_x", space = "free_x", nrow=1)+
+  theme(legendpanel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
+        axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
+        axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")+
+  theme(legend.position = "none")
+
+p_manhattan<-ggarrange(p_cons, p_fluc, nrow=2)
+#ggsave(filename = "plots/Manhattan_fluc.tiff", plot = p_manhattan,
+#       width = 20, height = 16, units = "cm", )
+ggsave(filename = "plots/Manhattan.tiff", plot = p_manhattan, width = 20, height = 16, units = "cm", dpi = 320, type = "cairo", compression="lzw")
+rm(p_cons,p_fluc,p_manhattan)
+```
+
+#2. Venn plot
+```{r}
+library(ggvenn)
+snp_fluc<-subset(glm_p, significant %in% c("Common","Fluctuating"))$loci
+snp_cons<-subset(glm_p, significant %in% c("Common","Constant"))$loci
+venn_data<-list(`Constant`=snp_cons,
+                `Fluctuating`=snp_fluc)
+
+p3<-ggvenn(venn_data, label="count", 
+           show_percentage = FALSE,
+           fill_color = c("#4fc0c6","#e8a11c"),fill_alpha = 0.7,
+           text_size = 6,
+           set_name_color = c("#4fc0c6","#e8a11c"),
+           set_name_size = 6,stroke_size = 0.6)+
+  theme(plot.margin = unit(c(0,0,0,0), "cm")) 
+plot(p3)
+ggsave("plots/venn_glm_fluc_cons_F60.pdf", plot = p3)
+rm(snp_cons, snp_fluc,p3, venn_data)
+```
+
+
+#3.AFC distribution
+##extract median AFC
+```{r}
+dt_afc<-data.table()
+#load af information
+#constant
+load("01genomic_data/cons_HAF.Rdata")
+invisible(dt_afc[, chrom := sites$chrom])
+invisible(dt_afc[, pos := sites$pos])
+invisible(dt_afc[, loci := paste0(chrom,".",pos)])
+invisible(dt_afc[, paste0("AFC_cons_r",1:5) := 
+                   as.data.table(afmat[,paste0("cons.60.",1:5)]-afmat[,paste0("anc.0.",1:5)])]) #col names format pop.generation.rep
+
+
+#fluctuating
+load("01genomic_data/fluc_HAF.Rdata")
+invisible(dt_afc[, paste0("AFC_fluc_r",1:5) := 
+                   as.data.table(afmat[,paste0("fluc.60.",1:5)]-afmat[,paste0("anc.0.",1:5)])]) #col names format pop.generation.rep
+
+
+rm(afmat, samps, sites)
+
+#keep only significant SNPs
+dt_afc <- dt_afc[loci %in% glm_p$loci, ]
+#calculate median AFC
+invisible(dt_afc[, median_cons := apply(.SD, 1, median), .SDcols = paste0("AFC_cons_r",1:5)])
+invisible(dt_afc[, median_fluc := apply(.SD, 1, median), .SDcols = paste0("AFC_fluc_r",1:5)])
+
+
+
+#absolute frequency change
+invisible(dt_afc[, abs_median_cons := abs(median_cons)])
+invisible(dt_afc[, abs_median_fluc := abs(median_fluc)])
+
+summary_info <- merge(dt_afc, glm_p, by = c("chrom","pos","loci"))
+rm(dt_afc, glm_p)
+```
+
+##plot AFC distribution
+##fluctuating population
+```{r}
+afc_info <- summary_info[significant=="Fluctuating",c("loci","median_fluc","median_cons")]
+
+#polarize SNPs to increase frequncing in the fluctuating population
+rows_to_flip <- afc_info$median_fluc<0
+afc_cols <- c("median_fluc", "median_cons") 
+invisible(afc_info[rows_to_flip, (afc_cols) := lapply(.SD, function(x) -x), .SDcols = afc_cols])
+
+
+dt_afc<-melt(afc_info, measure.vars = c("median_fluc", "median_cons"), value.name = "AFC")
+invisible(dt_afc[, Environment := fifelse(variable=="median_fluc", "Fluctuating", "Constant")])
+
+
+
+#color are categorized based on their
+p1<-ggplot(dt_afc, aes(x = AFC, fill = Environment))+
+  geom_density(trim = TRUE, alpha = 0.3)+
+  scale_fill_manual(values = c("#4fc0c6","#ea811c"))+
+  geom_vline(
+    xintercept = c(median(afc_info$median_cons, na.rm = TRUE), median(afc_info$median_fluc, na.rm = TRUE)),
+    linetype="dashed", color=c("#4fc0c6","#ea811c")
+    ) +
+  labs(
+    x="Median Allele Frequency Change",
+    y="Density",
+    title="SNPs significant in the Fluc population"
+    ) +
+  xlim(c(-1,1))+ylim(c(0,12))+
+  theme_bw()+
+  theme(legend.position = 'none')
+plot(p1)
+
+```
+##fluctuating population
+```{r}
+afc_info <- summary_info[significant=="Constant",c("loci","median_fluc","median_cons")]
+
+#polarize SNPs to increase frequncing in the fluctuating population
+rows_to_flip <- afc_info$median_cons<0
+afc_cols <- c("median_fluc", "median_cons") 
+invisible(afc_info[rows_to_flip, (afc_cols) := lapply(.SD, function(x) -x), .SDcols = afc_cols])
+
+
+dt_afc<-melt(afc_info, measure.vars = c("median_fluc", "median_cons"), value.name = "AFC")
+invisible(dt_afc[, Environment := fifelse(variable=="median_fluc", "Fluctuating", "Constant")])
+
+
+
+#color are categorized based on their
+p2<-ggplot(dt_afc, aes(x = AFC, fill = Environment))+
+  geom_density(trim = TRUE, alpha = 0.3)+
+  scale_fill_manual(values = c("#4fc0c6","#ea811c"))+
+  geom_vline(
+    xintercept = c(median(afc_info$median_cons, na.rm = TRUE), median(afc_info$median_fluc, na.rm = TRUE)),
+    linetype="dashed", color=c("#4fc0c6","#ea811c")
+    ) +
+  labs(
+    x="Median Allele Frequency Change",
+    y="Density",
+    title="SNPs significant in the Cons population"
+    ) +
+  xlim(c(-1,1))+ylim(c(0,12))+
+  theme_bw()+
+  theme(legend.position = 'none')
+plot(p2)
+```
+
+##merge plot
+```{r}
+p_merge<-ggarrange(p1,p2,nrow=2, common.legend = TRUE)
+ggsave("plots/median_AFC_distribution.pdf", plot=p_merge, width=8,height = 5)
+
+```
+
+##absolute AFC distribution
+###permutation test
+```{r}
+#since the median and variance could be influenced by the direction of the AFC, we test this in the absolute scale
+##permutation test for the variance
+perm_test <- function(DT, value_col,
+                      alternative = c("less","greater"), n_perm=10000, seed=123){
+  alternative <- match.arg(alternative)
+  set.seed(seed)
+  
+  x<-na.omit(DT[significant=="Fluctuating", get(value_col)])
+  y<-na.omit(DT[significant=="Constant", get(value_col)])
+  #observed differences
+  var_diff_obs <- var(x)-var(y) #test for the variance
+  mean_diff_obs <- mean(x) - mean(y) #test for the mean
+  median_diff_obs <- median(x) - median(y)
+
+  #combine all data
+  all_vals <-c(x,y)
+  n_x <- length(x)
+
+  #permutation
+  perm_diffs <- replicate(n_perm, {
+    perm_labels <- sample(all_vals)
+    perm_x <- perm_labels[1:n_x]
+    perm_y <- perm_labels[(n_x+1):length(all_vals)]
+    c(mean(perm_x) - mean(perm_y),
+      median(perm_x) - median(perm_y),
+      var(perm_x) - var(perm_y))
+    })
+
+  #One-sided p-value
+  mean_p <- switch(alternative,
+                    "less" = mean(perm_diffs[1,] <= mean_diff_obs),
+                    "greater" = mean(perm_diffs[1,] >= mean_diff_obs))
+  median_p <- switch(alternative,
+                    "less" = mean(perm_diffs[2,] <= median_diff_obs),
+                    "greater" = mean(perm_diffs[2,] >= median_diff_obs))
+  var_p <- switch(alternative,
+                    "less" = mean(perm_diffs[3,] <= var_diff_obs),
+                    "greater" = mean(perm_diffs[3,] >= var_diff_obs))
+  list(
+    mean_obs = mean_diff_obs,
+    mean_p = mean_p,
+    median_obs = median_diff_obs,
+    median_p = median_p,
+    var_obs = var_diff_obs,
+    var_p = var_p,
+    perm_diffs = perm_diffs
+  )
+}
+
+#test under 2818 environment
+permu_2818<-perm_test(DT = summary_info[significant!= "Common",],
+          value_col = "abs_median_fluc",
+          alternative = "greater")
+
+#test under 23 environment
+permu_23<-perm_test(DT = summary_info[significant!= "Common",],
+          value_col = "abs_median_cons",
+          alternative = "less")
+
+```
+
+###plot
+```{r}
+color_common<-"#6e326e"
+color_cons<-"#4fc0c6"
+color_fluc<-"#e8a11c"
+#under 23 environment
+p1<-ggplot(summary_info, aes(x=significant, y=abs_median_cons,fill = significant))+
+  geom_boxplot(width=0.5)+
+  ylim(0,1)+
+  scale_fill_manual(values = c(color_fluc, color_cons, color_common))+
+  labs(x="", y="|Median allele frequency change|",title="Evolution in 23")+
+  geom_signif(comparisons = list(c("Constant","Fluctuating")),
+              annotations = "Permutation test: p < 1e-4")+
+  theme(legend.position = 'none',
+        panel.background = element_rect(fill = alpha(color_cons, 0.3)),
+        axis.text = element_text(size=15),
+        axis.title = element_text(size=20),
+        title = element_text(size=25))
+  
+plot(p1)
+
+#under 2818 environment
+p2<-ggplot(summary_info, aes(x=significant, y=abs_median_fluc,fill = significant))+
+  geom_boxplot(width=0.5)+
+  ylim(0,1)+
+  scale_fill_manual(values = c(color_fluc, color_cons, color_common))+
+  labs(x="", y="|Median Allele frequency change|",title="Evolution in 28/18")+
+  geom_signif(comparisons = list(c("Constant","Fluctuating")),
+              annotations = "Permutation test: p < 1e-4")+
+  theme(legend.position = 'none',
+        panel.background = element_rect(fill = alpha(color_fluc, 0.3)),
+        axis.text = element_text(size=15),
+        axis.title = element_text(size=20),
+        title = element_text(size=25))
+#plot(p2)
+
+merge_p<-ggarrange(p1,p2, nrow=2)
+
+ggsave("plots/Absoulte_AFC.pdf",plot = merge_p, width=7, height = 10)
+
+
+```

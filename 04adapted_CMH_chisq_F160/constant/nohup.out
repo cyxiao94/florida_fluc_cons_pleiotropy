@@ -1,0 +1,25 @@
+
+
+processing file: adapted_CMH_chisq.Rmd
+1/17                  
+2/17 [setup]          
+3/17                  
+4/17 [unnamed-chunk-1]
+5/17                  
+6/17 [unnamed-chunk-2]
+7/17                  
+8/17 [unnamed-chunk-3]
+9/17                  
+10/17 [unnamed-chunk-4]
+11/17                  
+12/17 [unnamed-chunk-5]
+13/17                  
+14/17 [unnamed-chunk-6]
+15/17                  
+16/17 [unnamed-chunk-7]
+17/17                  
+output file: adapted_CMH_chisq.knit.md
+
+/Users/cxiao/opt/anaconda3/bin/pandoc +RTS -K512m -RTS adapted_CMH_chisq.knit.md --to html4 --from markdown+autolink_bare_uris+tex_math_single_backslash --output adapted_CMH_chisq.html --lua-filter /Library/Frameworks/R.framework/Versions/4.2/Resources/library/rmarkdown/rmarkdown/lua/pagebreak.lua --lua-filter /Library/Frameworks/R.framework/Versions/4.2/Resources/library/rmarkdown/rmarkdown/lua/latex-div.lua --self-contained --variable bs3=TRUE --section-divs --template /Library/Frameworks/R.framework/Versions/4.2/Resources/library/rmarkdown/rmd/h/default.html --no-highlight --variable highlightjs=1 --variable theme=bootstrap --mathjax --variable 'mathjax-url=https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML' --include-in-header /var/folders/ns/w0828l3d6bx11z9gqnz85hbm0000gp/T//RtmpiHcAGT/rmarkdown-str3100164c1860.html 
+
+Output created: adapted_CMH_chisq.html

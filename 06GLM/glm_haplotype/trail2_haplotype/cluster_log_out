@@ -1,0 +1,58 @@
+scoring windows..
+500 -SNP windows with  100 -SNP shift
+500 -SNP windows with  100 -SNP shift
+70 ..69 ..68 ..67 ..66 ..65 ..64 ..63 ..62 ..61 ..60 ..59 ..58 ..57 ..
+finding initial clusters..
+2L 1_7 39.64828 57 
+2R 1_7 39.64828 57 
+3R 1_7 39.64828 57 
+3L 1_7 39.64828 57 
+X 1_7 39.64828 57 
+4 1_7 39.64828 57 
+886 initial clusters found..
+merging linked clusters for chr 2L  ..
+197  clusters
+12581 / 13618  sig sites in clusters
+2L ...12788607 pairs...done.
+9 cluster pairs with high linkage
+189  clusters
+12604 / 13618  sig sites in clusters
+0 cluster pairs with high linkage
+merging linked clusters for chr 2R  ..
+155  clusters
+7866 / 8888  sig sites in clusters
+2R ...6977760 pairs...done.
+9 cluster pairs with high linkage
+146  clusters
+7875 / 8888  sig sites in clusters
+1 cluster pairs with high linkage
+145  clusters
+7879 / 8888  sig sites in clusters
+0 cluster pairs with high linkage
+merging linked clusters for chr 3L  ..
+228  clusters
+12424 / 13959  sig sites in clusters
+3L ...13199894 pairs...done.
+18 cluster pairs with high linkage
+213  clusters
+12455 / 13959  sig sites in clusters
+2 cluster pairs with high linkage
+211  clusters
+12455 / 13959  sig sites in clusters
+0 cluster pairs with high linkage
+merging linked clusters for chr 3R  ..
+202  clusters
+14058 / 15848  sig sites in clusters
+3R ...13639977 pairs...done.
+21 cluster pairs with high linkage
+185  clusters
+14081 / 15848  sig sites in clusters
+3 cluster pairs with high linkage
+182  clusters
+14081 / 15848  sig sites in clusters
+0 cluster pairs with high linkage
+merging linked clusters for chr X  ..
+102  clusters
+3164 / 4005  sig sites in clusters
+X ...1095428 pairs...done.
+0 cluster pairs with high linkage

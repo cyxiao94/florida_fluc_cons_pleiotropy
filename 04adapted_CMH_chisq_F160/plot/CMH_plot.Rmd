@@ -1,0 +1,215 @@
+---
+title: "CMH_plot"
+author: "Changyi"
+date: "2024-03-12"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(data.table)
+library(ggpubr)
+library(ggvenn)
+```
+
+
+#1. CMH result
+##1.1 load data
+```{r}
+cmh_fluc<-fread('../../00data/genomic_data/fluctuating_F0_F160_CMH.result.gz');colnames(cmh_fluc)<-c("chr","pos","fluc_p","adj_fluc_p")
+cmh_cons<-fread('../../00data/genomic_data/constant_F0_F160_CMH.result.gz');colnames(cmh_cons)<-c("chr","pos","cons_p","adj_cons_p")
+cmh_merge<-merge(cmh_fluc,cmh_cons, by = c("chr","pos"), all.x = TRUE, all.y = TRUE)
+#replace p-value with NA to 1(non-significant)
+cmh_merge <- transform(cmh_merge,
+                 adj_fluc_p = ifelse(is.na(adj_fluc_p), 1, adj_fluc_p),
+                 adj_cons_p = ifelse(is.na(adj_cons_p), 1, adj_cons_p))
+
+#obtain only significant SNPs
+#sig_cmh_merge<-cmh_merge[fluc_adj_p<0.05 | cons_adj_p<0.05]
+#sig_cmh_merge<-cmh_merge[cons_adj_p<0.05]
+invisible(cmh_merge[, Significance := ifelse(adj_fluc_p<=0.05 & adj_cons_p<=0.05, "Common",
+                             ifelse(adj_fluc_p<=0.05 & adj_cons_p>0.05, "Fluctuating",
+                                    ifelse(adj_fluc_p>0.05 & adj_cons_p<=0.05, "Constant", "None")))])
+invisible(cmh_merge[, loci := paste0(chr, ".",pos)])
+#keep only significant ones
+cmh_sig <- cmh_merge[Significance != "None"]
+fwrite(cmh_sig,file='cmh_merge_sig.txt.gz', sep="\t", quote = FALSE)
+rm(cmh_cons, cmh_fluc, cmh_merge)
+```
+
+
+
+##1.2 manhattan plot
+```{r}
+cmh_sig <- fread("cmh_merge_sig.txt.gz")
+cmh_sig$chr<-factor(cmh_sig$chr, levels = c("X","2L","2R","3L","3R","4"))
+#chr 4 too short, not visualize
+cmh_sig <- cmh_sig[chr != 4,]
+
+#p-values for CMH between constant VS ancestral
+p1<-ggplot(cmh_sig)+
+  geom_point(data=subset(cmh_sig,Significance=="Fluctuating"), aes(x=pos/1000000,y=-log10(adj_cons_p), color=Significance),cex = 0.1)+
+  geom_point(data=subset(cmh_sig,Significance=="Constant"), aes(x=pos/1000000,y=-log10(adj_cons_p), color=Significance),cex = 0.1)+
+  geom_point(data=subset(cmh_sig,Significance=="Common"), aes(x=pos/1000000,y=-log10(adj_cons_p), color=Significance),cex = 0.1)+
+  facet_grid(~chr, scales = "free_x", space = "free_x")+
+  theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
+        axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
+        axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")+
+  scale_x_continuous(breaks = seq(0,25,5))+
+  scale_y_continuous(breaks = seq(0,50,10), limits = c(0,50))+
+  geom_hline(aes(yintercept=-log10(0.05)), color="red", linetype="dashed")+
+  scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+ #common, constant, fluctuating
+  labs(x = "postion(Mb)", y = "CMH -log10(p-value)", title="Constant vs Ancestral")#+ylim(0,30)
+
+
+#p-values for CMH between fluctuating VS ancestral
+p2<-ggplot(cmh_sig)+
+  geom_point(data=subset(cmh_sig,Significance=="Fluctuating"), aes(x=pos/1000000,y=-log10(adj_fluc_p), color=Significance),cex = 0.1)+
+  geom_point(data=subset(cmh_sig,Significance=="Constant"), aes(x=pos/1000000,y=-log10(adj_fluc_p), color=Significance),cex = 0.1)+
+  geom_point(data=subset(cmh_sig,Significance=="Common"), aes(x=pos/1000000,y=-log10(adj_fluc_p), color=Significance),cex = 0.1)+
+  facet_grid(~chr, scales = "free_x", space = "free_x")+
+  theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
+        axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
+        axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")+
+  scale_x_continuous(breaks = seq(0,25,5))+
+  scale_y_continuous(breaks = seq(0,50,10), limits = c(0,50))+
+  geom_hline(aes(yintercept=-log10(0.05)), color="red", linetype="dashed")+
+  scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+ #common, constant, fluctuating
+  labs(x = "postion(Mb)", y = "CMH -log10(p-value)", title="Fluctuating vs Ancestral")#+ylim(0,30)
+
+#combine plot
+merge_p<-ggarrange(p1,p2,nrow=2, heights = c(1,1),
+                                      labels="AUTO")
+ggsave(filename = 'CMH_plot_F160.tiff', plot = merge_p, width = 20, height = 16, units = "cm",  dpi = 320, type = "cairo", compression = "lzw")
+
+```
+
+
+##1.3 Venn plot
+```{r}
+fluc_snp<-cmh_sig[adj_fluc_p<=0.05,loci]
+cons_snp<-cmh_sig[adj_cons_p<=0.05,loci]
+venn_data<-list(`Constant`=cons_snp,
+                `Fluctuating`=fluc_snp)
+
+
+p3<-ggvenn(venn_data, label="count", 
+           show_percentage = FALSE,
+           fill_color = c("#4fc0c6","#e8a11c"),fill_alpha = 0.7,
+           set_name_color = c("#4fc0c6","#e8a11c"),
+           set_name_size = 6,stroke_size = 0.6)+
+  theme(plot.margin = unit(c(0,0,0,0), "cm")) 
+plot(p3)
+ggsave("venn_cmh_fluc_cons_F160.pdf", plot = p3)
+
+#Constant has 115020 significant SNPs
+#fluctuating has 89450 significant SNPs
+#11967 SNPs are shared
+```
+#2.Chisq result
+#2.1 load data
+```{r}
+#cons populations
+chisq_cons<-fread('../../00data/genomic_data/constant_F0_F160_Chisq.result.gz', 
+                  select = c("chr","pos","r1_adj_p","r2_adj_p","r3_adj_p","r4_adj_p","r5_adj_p"))
+setnames(chisq_cons,
+         old = c("r1_adj_p", "r2_adj_p", "r3_adj_p", "r4_adj_p", "r5_adj_p"),
+         new = paste0("Constant_R",1:5))
+#fluc populations
+chisq_fluc<-fread('../../00data/genomic_data/fluctuating_F0_F160_Chisq.result.gz',
+                  select = c("chr","pos","r1_adj_p","r2_adj_p","r3_adj_p","r4_adj_p","r5_adj_p"))
+setnames(chisq_fluc,
+         old = c("r1_adj_p", "r2_adj_p", "r3_adj_p", "r4_adj_p", "r5_adj_p"),
+         new = paste0("Fluctuating_R",1:5))
+
+
+#merge populations
+chisq_merge<-merge(chisq_fluc[,c("chr","pos",paste0("Fluctuating_R",1:5))],
+                   chisq_cons[,c("chr","pos",paste0("Constant_R",1:5))],
+                   by = c("chr","pos"), all = TRUE)
+
+##replace p-value with NA to 1(non-significant)
+chisq_merge <- transform(chisq_merge,
+                 Fluctuating_R1 = ifelse(is.na(Fluctuating_R1), 1, Fluctuating_R1),
+                 Fluctuating_R2 = ifelse(is.na(Fluctuating_R2), 1, Fluctuating_R2),
+                 Fluctuating_R3 = ifelse(is.na(Fluctuating_R3), 1, Fluctuating_R3),
+                 Fluctuating_R4 = ifelse(is.na(Fluctuating_R4), 1, Fluctuating_R4),
+                 Fluctuating_R5 = ifelse(is.na(Fluctuating_R5), 1, Fluctuating_R5),
+                 Constant_R1 = ifelse(is.na(Constant_R1), 1, Constant_R1),
+                 Constant_R2 = ifelse(is.na(Constant_R2), 1, Constant_R2),
+                 Constant_R3 = ifelse(is.na(Constant_R3), 1, Constant_R3),
+                 Constant_R4 = ifelse(is.na(Constant_R4), 1, Constant_R4),
+                 Constant_R5 = ifelse(is.na(Constant_R5), 1, Constant_R5))
+                 
+
+rm(chisq_fluc, chisq_cons)
+
+#only keep significant SNPs
+chisq_merge_sig<-chisq_merge[
+  Fluctuating_R1 <= 0.05 | Fluctuating_R2 <= 0.05 | Fluctuating_R3 <= 0.05 | Fluctuating_R4 <= 0.05 | Fluctuating_R5 <= 0.05 |
+    Constant_R1 <= 0.05 | Constant_R2 <= 0.05 | Constant_R3 <= 0.05 | Constant_R4 <= 0.05 | Constant_R5 <= 0.05,]
+                         
+invisible(chisq_merge_sig[, loci := paste0(chr, ".",pos)])
+
+#category snps based on the significance
+columns_cons <- paste0("Constant_R",1:5)
+columns_fluc <- paste0("Fluctuating_R",1:5)
+chisq_merge_sig[, Significance := {
+  cons_sig <- rowSums(as.matrix(.SD[, ..columns_cons]) < 0.05) >0
+  fluc_sig <- rowSums(as.matrix(.SD[, ..columns_fluc]) < 0.05) >0
+  
+  fifelse(cons_sig & fluc_sig, "Common",
+    fifelse(cons_sig, "Constant",
+      fifelse(fluc_sig, "Fluctuating", NA_character_)))
+}]
+
+fwrite(chisq_merge_sig, file = "chisq_merge_sig.txt.gz", quote = FALSE, sep="\t")
+rm(chisq_merge)
+```
+
+##count number of signifiant SNPs per replicate
+```{r}
+#constant
+print("constant")
+sum(chisq_merge_sig$Constant_R1<0.05)
+sum(chisq_merge_sig$Constant_R2<0.05)
+sum(chisq_merge_sig$Constant_R3<0.05)
+sum(chisq_merge_sig$Constant_R4<0.05)
+sum(chisq_merge_sig$Constant_R5<0.05)
+#fluctuating
+#constant
+print("fluctuating")
+sum(chisq_merge_sig$Fluctuating_R1<0.05)
+sum(chisq_merge_sig$Fluctuating_R2<0.05)
+sum(chisq_merge_sig$Fluctuating_R3<0.05)
+sum(chisq_merge_sig$Fluctuating_R4<0.05)
+sum(chisq_merge_sig$Fluctuating_R5<0.05)
+
+
+
+```
+
+#2.2 venn plot
+```{r}
+venn_data<-list(`Constant`=chisq_merge_sig[Significance %in% c("Constant","Common"), loci],
+                `Fluctuating`=chisq_merge_sig[Significance %in% c("Fluctuating","Common"), loci])
+p4<-ggvenn(venn_data, label="count", 
+           show_percentage = FALSE,
+           fill_color = c("#4fc0c6","#e8a11c"),fill_alpha = 0.7,
+           set_name_color = c("#4fc0c6","#e8a11c"),
+           set_name_size = 6,stroke_size = 0.6)+
+  theme(plot.margin = unit(c(0,0,0,0), "cm")) 
+plot(p4)
+ggsave("venn_chisq_fluc_cons_F160.pdf", plot = p4)
+#Constant has 175703 significant SNPs
+#fluctuating has 186246 significant SNPs
+#25647 SNPs are shared
+```
+
+
+
+
