@@ -10,14 +10,14 @@ spca<-readRDS("spca_score.rds")
 dat_spca<-as.data.frame(spca)
 suminfo<-fread("suminfo.centered.scaled.txt")
 
-samples<-rownames(dat_spca)
-environment<-rep(c("Ancestral", rep("Constant",6), rep("Fluctuating",6)),5)
-generation<-paste("F",rep(c(0,10,20,30,40,50,60,10,20,30,40,50,60),5),sep="")
-replicate<-as.factor(rep(1:5, each=13))
-environment_generation=as.factor(paste(environment, generation, sep="_"))
-t1<-data.frame(samples, environment, generation, replicate)
+Samples<-rownames(dat_spca)
+Environment<-rep(c("Anc", rep("Cons",6), rep("Fluc",6)),5)
+Generation<-paste("F",rep(c(0,10,20,30,40,50,60,10,20,30,40,50,60),5),sep="")
+Replicate<-as.factor(rep(1:5, each=13))
+Population=as.factor(paste(Environment, Generation, sep="_"))
+t1<-data.frame(Samples, Environment, Generation, Replicate)
 
-p1<-ggplot(dat_spca, aes(x=V1,y=V2,col=environment_generation, shape=replicate))+
+p1<-ggplot(dat_spca, aes(x=V1,y=V2,col=Population, shape=Replicate))+
   geom_point(cex=3)+
   geom_vline(aes(xintercept=0), color='grey', linetype='dashed')+
   theme(panel.background = element_rect(fill = 'white', colour = 'black'),

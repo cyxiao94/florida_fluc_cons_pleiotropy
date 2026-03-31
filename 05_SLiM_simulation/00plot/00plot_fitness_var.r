@@ -4,13 +4,13 @@ library(dplyr)
 library(ggpubr)
 
 for (model in c("model1","model2","model3","model4")){
-f=fread(paste0('../',model,'/04analysis/summary_phenotypic_variation.txt'))
+f=fread(paste0('../',model,'/04analysis/summary_phenotypic_variation.txt.gz'))
 
 f$generation=f$generation-1
 f$generation=factor(f$generation, levels=c(0,1,2,3,4,5,10,20,30,40,50,60))
 f$ispleiotropy=factor(f$ispleiotropy)
 f$model="model1"
-f[, population := ifelse(pop %in% c("p1", "p2", "p3", "p4", "p5"), "fluctuating", "constant")]
+f[, population := ifelse(pop %in% c("p1", "p2", "p3", "p4", "p5"), "Fluc", "Cons")]
 
 f$population=factor(f$population)
 

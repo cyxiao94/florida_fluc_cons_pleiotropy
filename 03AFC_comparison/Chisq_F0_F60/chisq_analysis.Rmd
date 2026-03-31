@@ -30,12 +30,12 @@ col_fluc<-"#e8a11c"
 chisq_fluc<-fread("../../00data/genomic_data/fluctuating_F0_F60_Chisq.result.gz", 
                   select = c("chr","pos","r1_adj_p", "r2_adj_p","r3_adj_p","r4_adj_p","r5_adj_p"))
 colnames(chisq_fluc)<-c("chr","pos",
-                        paste0("Fluctuating_R", 1:5))
+                        paste0("Fluc_R", 1:5))
 ##constant
 chisq_cons<-fread("../../00data/genomic_data/constant_F0_F60_Chisq.result.gz", 
                   select = c("chr","pos","r1_adj_p", "r2_adj_p","r3_adj_p","r4_adj_p","r5_adj_p"))
 colnames(chisq_cons)<-c("chr","pos",
-                        paste0("Constant_R", 1:5))
+                        paste0("Cons_R", 1:5))
 
 #combine results
 chisq_comb<-merge(chisq_fluc, chisq_cons, by = c("chr", "pos"), all = TRUE)
@@ -52,16 +52,16 @@ chisq_sig <- chisq_comb[
 ##constant -- at least 1 replicates from constant populations have FDR p-value < 0.05, but none of the fluctuating replicates
 ##fluctuating -- at least 1 replicates from fluctuating populations have FDR p-value < 0.05, but none of the constant replicates
 ##constant -- both constant and fluctuating replicate have FDR p-value < 0.05
-fluc_cols <- grep("Fluctuating",colnames(chisq_sig), value = TRUE)
-cons_cols <- grep("Constant",colnames(chisq_sig), value = TRUE)
+fluc_cols <- grep("Fluc",colnames(chisq_sig), value = TRUE)
+cons_cols <- grep("Cons",colnames(chisq_sig), value = TRUE)
 
 invisible(chisq_sig[, Significance := {
   sig_fluc <- rowSums(.SD[, ..fluc_cols] <0.05) > 0
   sig_cons <- rowSums(.SD[, ..cons_cols] <0.05) > 0
   
-  fifelse(sig_fluc & !sig_cons, "Fluctuating",
-          fifelse(sig_cons & !sig_fluc, "Constant",
-                  fifelse(sig_fluc & sig_cons, "both", "none"))) #there should be no "none" as they were filtered out
+  fifelse(sig_fluc & !sig_cons, "Fluc",
+          fifelse(sig_cons & !sig_fluc, "Cons",
+                  fifelse(sig_fluc & sig_cons, "Common", "none"))) #there should be no "none" as they were filtered out
   
 }])
 
@@ -107,6 +107,9 @@ rm(af,af_sig,i)
 
 #2. AFC distribution
 ```{r}
+chisq_sig<-fread("Chisq_result_sigSNP_fluc_cons.txt.gz")
+af_sig<-fread("Chisq_sig_SNP_af.txt.gz")
+setnames(af_sig, "rn","loci")
 #extract AFC
 summary_info<-merge(af_sig, chisq_sig, by = "loci")
 fluc_cols <- grep("^AFC_fluc",names(summary_info), value = TRUE)
@@ -122,7 +125,7 @@ invisible(summary_info[, `:=` (
 ```
 ##2.1 SNPs significant in the fluctuating population
 ```{r}
-afc_info<-summary_info[Significance == "Fluctuating", c("loci","median_fluc", "median_cons", "Significance")]
+afc_info<-summary_info[Significance == "Fluc", c("loci","median_fluc", "median_cons", "Significance")]
 #polarize SNPs to increase frequency in the focal environment
 rows_to_flip <- afc_info$median_fluc<0
 
@@ -150,7 +153,7 @@ plot(p_fluc)
 ```
 ##2.2 SNPs significant in the constant population
 ```{r}
-afc_info<-summary_info[Significance == "Constant", c("loci","median_fluc", "median_cons", "Significance")]
+afc_info<-summary_info[Significance == "Cons", c("loci","median_fluc", "median_cons", "Significance")]
 #polarize SNPs to increase frequency in the focal environment
 rows_to_flip <- afc_info$median_cons<0
 
@@ -307,8 +310,8 @@ perm_test <- function(DT, value_col,
   alternative <- match.arg(alternative)
   set.seed(seed)
   
-  x<-DT[Significance=="Fluctuating", get(value_col)]
-  y<-DT[Significance=="Constant", get(value_col)]
+  x<-DT[Significance=="Fluc", get(value_col)]
+  y<-DT[Significance=="Cons", get(value_col)]
   #observed differences
   var_diff_obs <- var(x)-var(y) #test for the variance
   mean_diff_obs <- mean(x) - mean(y) #test for the mean
@@ -350,12 +353,12 @@ perm_test <- function(DT, value_col,
 }
 
 #test under 2818 environment
-permu_2818<-perm_test(DT = summary_info[Significance!= "both",],
+permu_2818<-perm_test(DT = summary_info[Significance!= "Common",],
           value_col = "abs_median_fluc",
           alternative = "greater")
 
 #test under 23 environment
-permu_23<-perm_test(DT = summary_info[Significance!= "both",],
+permu_23<-perm_test(DT = summary_info[Significance!= "Common",],
           value_col = "abs_median_cons",
           alternative = "less")
 
@@ -369,7 +372,7 @@ permu_23<-perm_test(DT = summary_info[Significance!= "both",],
 #AFC distribution under 2818 environments
 p_fluc<-ggplot(summary_info, aes(x=Significance, y=abs_median_fluc, fill = Significance))+
   geom_boxplot(outlier.size = 0.3)+
-  geom_signif(comparisons = list(c("Constant","Fluctuating")),
+  geom_signif(comparisons = list(c("Cons","Fluc")),
               annotations = "Permutation test: p < 1e-4")+
   scale_fill_manual(values = c(col_anc, col_cons, col_fluc))+
   labs(x="Population",y="|Median Allele Frequency Change|", title = "Evolution in 28/18")+
@@ -381,7 +384,7 @@ ggsave(file="Chisq_2818_medianAFC.pdf", plot = p_fluc, width = 8, height = 5)
 #AFC distribution under 23 environments
 p_cons<-ggplot(summary_info, aes(x=Significance, y=abs_median_cons, fill = Significance))+
   geom_boxplot(outlier.size = 0.3)+
-  geom_signif(comparisons = list(c("Constant","Fluctuating")),
+  geom_signif(comparisons = list(c("Cons","Fluc")),
               annotations = "Permutation test: p < 1e-4")+
   scale_fill_manual(values = c(col_anc, col_cons, col_fluc))+
   labs(x="Population",y="|Median Allele Frequency Change|", title = "Evolution in 23")+

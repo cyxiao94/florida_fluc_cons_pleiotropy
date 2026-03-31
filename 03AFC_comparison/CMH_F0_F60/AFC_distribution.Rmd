@@ -52,8 +52,8 @@ rm(sync_todo);rm(sync_todo1)
 
 #2.obtain allele frequency
 ```{r}
-#60 represent constant population at generation 60
-#61 represent fluctuating population at generation 60
+#60 represent cons population at generation 60
+#61 represent fluc population at generation 60
 input_gen=c(0,60,61)
 num_reps=5
 sync<-read.sync("cmh_sig_snp.sync.gz",
@@ -63,6 +63,15 @@ pos <- splitLocusID(rownames(freqf))
 
 
 #get AFC
+anc_af <- data.frame(anc_R1 = freqf$F0.R1.freq,
+                     anc_R2 = freqf$F0.R2.freq,
+                     anc_R3 = freqf$F0.R3.freq,
+                     anc_R4 = freqf$F0.R4.freq,
+                     anc_R5 = freqf$F0.R5.freq)
+anc_median_af<-apply(anc_af, 1, median)
+
+
+
 cons_afc<-data.frame(cons_AFC_R1=freqf$F60.R1.freq-freqf$F0.R1.freq,
                      cons_AFC_R2=freqf$F60.R2.freq-freqf$F0.R2.freq,
                      cons_AFC_R3=freqf$F60.R3.freq-freqf$F0.R3.freq,
@@ -82,6 +91,7 @@ fluc_mean_afc<-apply(fluc_afc, 1, mean)
 summary_info<-data.frame(chr=cmh_sig$chr, pos=cmh_sig$pos, loci=cmh_sig$loci,
                          adj_fluc_p=cmh_sig$adj_fluc_p, adj_cons_p=cmh_sig$adj_cons_p,
                          category=cmh_sig$category,
+                         anc_af, anc_median_af,
                          cons_afc,cons_median_afc,cons_mean_afc,
                          fluc_afc,fluc_median_afc,fluc_mean_afc)
 
@@ -287,6 +297,10 @@ p1<-ggplot(dt, aes(x=category, y=abs_cons_median_afc,fill = category))+
   geom_boxplot(width=0.5)+
   ylim(0,1)+
   scale_fill_manual(values = c("#6e326e","#4fc0c6","#ea811c"))+
+  scale_x_discrete(labels = c(
+    "Fluctuating" = "Fluc",
+    "Constant" = "Cons",
+    "Common" = "Common"))+
   labs(x="", y="|Median allele frequency change|",title="Evolution in 23")+
   geom_signif(comparisons = list(c("Constant","Fluctuating")),
               annotations = "Permutation test: p < 1e-4")+
@@ -302,6 +316,10 @@ p2<-ggplot(dt, aes(x=category, y=abs_fluc_median_afc,fill = category))+
   geom_boxplot(width=0.5)+
   ylim(0,1)+
   scale_fill_manual(values = c("#6e326e","#4fc0c6","#ea811c"))+
+   scale_x_discrete(labels = c(
+    "Fluctuating" = "Fluc",
+    "Constant" = "Cons",
+    "Common" = "Common"))+
   labs(x="", y="|Median Allele frequency change|",title="Evolution in 28/18")+
   geom_signif(comparisons = list(c("Constant","Fluctuating")),
               annotations = "Permutation test: p < 1e-4")+
@@ -316,5 +334,35 @@ merge_p<-ggarrange(p1,p2, ncol=2)
 ggsave("Absoulte_AFC.pdf",plot = merge_p, width=10, height = 5)
 ```
 
+
+#6. initial frequency
+```{r}
+p_fluc<-ggplot(dt[category %in% c("Fluctuating", "Common")], aes(x=anc_median_af))+
+  geom_density(fill = color_fluc, alpha = 0.5)+
+  xlab("Median Allele frequency")+ylab("Density")+ggtitle("Fluc population")+
+  xlim(c(0,1))+ylim(c(0,15))+
+  theme_bw()+
+  theme(legend.position = 'none')+
+  theme(title = element_text(size=18),
+        axis.title.x = element_text(size=16),
+        axis.text = element_text(size=12))
+
+p_cons<-ggplot(dt[category %in% c("Constant", "Common")], aes(x=anc_median_af))+
+  geom_density(fill = color_cons, alpha = 0.5)+
+  xlab("Median Allele frequency")+ylab("Density")+ggtitle("Cons population")+
+  xlim(c(0,1))+ylim(c(0,15))+
+  theme_bw()+
+  theme(legend.position = 'none')+
+  theme(title = element_text(size=18),
+        axis.title.x = element_text(size=16),
+        axis.text = element_text(size=12))
+
+p_af<-ggarrange(p_cons, p_fluc,
+                nrow=2)
+ggsave(filename = "Anc_AF_distribution.pdf",
+       plot = p_af,
+       width = 8,
+       height = 8)
+```
 
 

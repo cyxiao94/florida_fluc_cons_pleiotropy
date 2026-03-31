@@ -11,7 +11,7 @@ sum_f_sig=NULL
 for (model in c("model1","model2","model3","model4")){
 
     #significant SNPs only
-    f_sig=fread(paste0('../',model,'/04analysis/summary_correlation_sig_SNP.txt'))
+    f_sig=fread(paste0('../',model,'/04analysis/summary_correlation_sig_SNP.txt.gz'))
     f_sig$model=model
     sum_f_sig=rbind(sum_f_sig,f_sig)
 }
@@ -47,7 +47,7 @@ p2=ggplot(sum_f_sig,aes(x=cate,y=correlation,color=comparison))+
                 y_position = c(-0.95, -0.85, -0.75),  textsize = 3,  tip_length=-0.03,test = "wilcox.test",
                 vjust = 3.0) +  
             xlab("")+
-                        scale_x_discrete(labels=c(paste0(spaces,"Model1\n",spaces,"Equal architecture\n",spaces,"Equal selection\n",spaces,"Non-pleiotropy"),"",
+  scale_x_discrete(labels=c(paste0(spaces,"Model1\n",spaces,"Equal architecture\n",spaces,"Equal selection\n",spaces,"Non-pleiotropy"),"",
                                       paste0(spaces,"Model2\n",spaces,"Equal architecture\n",spaces,"Lab selection\n",spaces,"Non-pleiotropy"),"",
                                       paste0(spaces,"Model3\n",spaces,"Unequal architecture\n",spaces,"Lab selection\n",spaces,"Non-pleiotropy"),"",
                                       paste0(spaces,"Model4\n",spaces,"Equal architecture\n",spaces,"Lab selection\n",spaces,"Pleiotropy"),""))+

@@ -11,7 +11,7 @@ library(ggsignif)
 #setwd("04analysis")
 info=NULL
 for (model in c(1,2,3,4)){
-sum_info=fread(paste0("../model",model,"/04analysis/Number_significant.txt"))
+sum_info=fread(paste0("../model",model,"/04analysis/Number_significant.txt.gz"))
 sum_info[,"model"]=paste0("model",model)
 sum_info$fluc=as.numeric(sum_info$fluc)
 sum_info$cons=as.numeric(sum_info$cons)
@@ -27,7 +27,7 @@ info=rbind(info,temp_info)
 info$model=factor(info$model)
 
 p1=ggplot(info, aes(x=model,y=proportion))+
-    geom_boxplot(outlier.size = 0.5)+
+    geom_boxplot(outlier.size = 0.2)+
     geom_signif(comparisons=list(c("model2","model3"),
                                  c("model2","model4"),
                                  c("model3","model4")),
@@ -49,7 +49,7 @@ p1=ggplot(info, aes(x=model,y=proportion))+
     theme_bw()+
     theme(legend.position="none",
           axis.ticks.x=element_blank())
-ggsave("01Proportion_shared_SNP.pdf", width=7, height=4)
+ggsave("01Proportion_shared_SNP.pdf", width=8, height=5)
 
 
 

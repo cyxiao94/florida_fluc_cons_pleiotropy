@@ -48,7 +48,7 @@ load_data <- function(CGE=NULL) {
     red = t2$x,
     Days = 10,
     Population = rep(rep(
-      c("Ancestral", "Constant", "Fluctuating"), each = 5
+      c("Anc", "Cons", "Fluc"), each = 5
     ), 3)
   )
   #accumu_data <- rbind(accumu_data,data1)
@@ -61,7 +61,7 @@ load_data <- function(CGE=NULL) {
 data_2818<-load_data(CGE="28_18")
 data_23<-load_data(CGE="23")
 data_merge<-rbind(data_23,data_2818)
-invisible(data_merge[, Population := factor(Population, levels = c("Fluctuating","Constant","Ancestral"))]) #we modify the order of levels to keep the sign positive
+invisible(data_merge[, Population := factor(Population, levels = c("Fluc","Cons","Anc"))]) #we modify the order of levels to keep the sign positive
 invisible(data_merge[, over := factor(rownames(data_merge))]) #to account for the overdispersion
 cols_to_factor<-c("evorep","techrep","Population","CGE")
 invisible(data_merge[, (cols_to_factor) := lapply(.SD, factor), .SDcols = cols_to_factor])
@@ -144,8 +144,8 @@ invisible(eggs_alldates_23[pop %in% c("anc","constant","wave2"), CGE := 23])
 eggs_alldates<-rbind(eggs_alldates_23, eggs_alldates_2818)
 #sum up the eggs across days
 eggs_sum <- eggs_alldates[, .(n_egg_sum = sum(n_egg)), by = .(pop, rep, run, CGE)]
-invisible(eggs_sum[, Population := fifelse(pop=="anc","Ancestral",
-                                 fifelse(pop=="constant","Constant","Fluctuating"))])
+invisible(eggs_sum[, Population := fifelse(pop=="anc","Anc",
+                                 fifelse(pop=="constant","Cons","Fluc"))])
 invisible(eggs_sum[, sample := paste(pop, run, rep, sep="_")])
 #load parents information
 info_fluc<-read_xlsx("fecundity/fluc_fecundity_summary.xlsx", col_names = TRUE);info_fluc$CGE <- 2818
@@ -222,7 +222,7 @@ emmeans_fecundity <- as.data.table(fecunity_emmeans1$emmeans)
 emmeans_fecundity$trait <- "Fecundity"
 
 emmeans_result <- rbindlist(list(emmeans_fecundity, emmeans_competitivefitness), fill = TRUE)
-emmeans_result$Population<-factor(emmeans_result$Population, levels = c("Ancestral", "Constant", "Fluctuating"))
+emmeans_result$Population<-factor(emmeans_result$Population, levels = c("Anc", "Cons", "Fluc"))
 ```
 
 
@@ -235,9 +235,9 @@ p_fecun_23 <- ggplot(emmeans_result[trait == "Fecundity" & CGE=="23",], aes(x=Po
   geom_pointrange(aes(ymin = lower.CL, ymax = upper.CL), show.legend = FALSE)+
   ylim(0,50)+
   labs(title = "", y="Number of eggs per female", x="Population")+
-  geom_signif(comparisons = list(c("Ancestral", "Constant"),
-                                 c("Ancestral", "Fluctuating"),
-                                 c("Constant", "Fluctuating")),
+  geom_signif(comparisons = list(c("Anc", "Cons"),
+                                 c("Anc", "Fluc"),
+                                 c("Cons", "Fluc")),
               annotations = c("***","****","ns"),
               y_position = c(41,47,44))+
   theme(legend.position = "none",
@@ -251,9 +251,9 @@ p_fecun_2818 <- ggplot(emmeans_result[trait == "Fecundity" & CGE=="2818",], aes(
   geom_pointrange(aes(ymin = lower.CL, ymax = upper.CL), show.legend = FALSE)+
   ylim(0,50)+
   labs(title = "", y="Number of eggs per female", x="Population")+
-  geom_signif(comparisons = list(c("Ancestral", "Constant"),
-                                 c("Ancestral", "Fluctuating"),
-                                 c("Constant", "Fluctuating")),
+  geom_signif(comparisons = list(c("Anc", "Cons"),
+                                 c("Anc", "Fluc"),
+                                 c("Cons", "Fluc")),
               annotations = c("****","****","ns"),
               y_position = c(41,47,44))+
   theme(legend.position = "none",
@@ -267,9 +267,9 @@ p_relfit_23 <- ggplot(emmeans_result[trait == "Competitive Fitness" & CGE=="23",
   geom_pointrange(aes(ymin = asymp.LCL, ymax = asymp.UCL), show.legend = FALSE)+
   ylim(0,1)+
   labs(title = "", y=" Proportion of red-eyed flies", x="Population")+
-  geom_signif(comparisons = list(c("Ancestral", "Constant"),
-                                 c("Ancestral", "Fluctuating"),
-                                 c("Constant", "Fluctuating")),
+  geom_signif(comparisons = list(c("Anc", "Cons"),
+                                 c("Anc", "Fluc"),
+                                 c("Cons", "Fluc")),
               annotations = c("****","****","ns"),
               y_position = c(0.8,0.95,0.875))+
   theme(legend.position = "none",
@@ -283,9 +283,9 @@ p_relfit_2818 <- ggplot(emmeans_result[trait == "Competitive Fitness" & CGE=="28
   geom_pointrange(aes(ymin = asymp.LCL, ymax = asymp.UCL), show.legend = FALSE)+
   ylim(0,1)+
   labs(title = "", y="Proportion of red-eyed flies", x="Population")+
-  geom_signif(comparisons = list(c("Ancestral", "Constant"),
-                                 c("Ancestral", "Fluctuating"),
-                                 c("Constant", "Fluctuating")),
+  geom_signif(comparisons = list(c("Anc", "Cons"),
+                                 c("Anc", "Fluc"),
+                                 c("Cons", "Fluc")),
               annotations = c("****","****","*"),
               y_position = c(0.8,0.95,0.875))+
   theme(legend.position = "none",
@@ -297,7 +297,7 @@ library(cowplot)
 plots <- list(p_fecun_23, p_fecun_2818, p_relfit_23, p_relfit_2818)
 
 merge_p <- plot_grid(
-  plotlist = plots, labels = c("A", "B", "C", "D"), label_size = 20,
+  plotlist = plots,
   nrow=2
 )
 
@@ -335,7 +335,7 @@ for (i in 1:10){
   t1<-aggregate(raw_data1$corrected_white, by = list(raw_data1$EvoRep, raw_data1$TechRep), sum) #flies with white eye
   t2<-aggregate(raw_data1$corrected_red, by = list(raw_data1$EvoRep, raw_data1$TechRep), sum) #flies with red eye
   data1<-data.frame(evorep=t1$Group.1, techrep=t1$Group.2, white=t1$x, red=t2$x, Days=i,
-                  Population=rep(rep(c("Ancestral","Constant","Fluctuating"),each=5),3))
+                  Population=rep(rep(c("Anc","Cons","Fluc"),each=5),3))
   accumu_data<-rbind(accumu_data,data1)}
 accumu_data$total=accumu_data$red+accumu_data$white
 accumu_data$ratio<-accumu_data$red/accumu_data$total
@@ -372,7 +372,7 @@ ratio_red_box<-ggplot(subset(accumu_data,Days==1), aes(x=Population, y = ratio_d
   ylab("Proportion of red-eyed flies")+
   scale_y_continuous(breaks = seq(0,0.6,0.2), limits = c(0,0.6))+
   scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
-  geom_signif(comparisons = list(c("Ancestral","Fluctuating"),c("Ancestral","Constant"),c("Fluctuating", "Constant")),
+  geom_signif(comparisons = list(c("Anc","Fluc"),c("Anc","Cons"),c("Fluc", "Cons")),
               test = "wilcox.test",map_signif_level=TRUE,
               step_increase = 0.1,)+
   ggtitle("Day1")+
@@ -414,7 +414,7 @@ for (i in 1:10){
   t1<-aggregate(raw_data1$corrected_white, by = list(raw_data1$EvoRep, raw_data1$TechRep), sum) #flies with white eye
   t2<-aggregate(raw_data1$corrected_red, by = list(raw_data1$EvoRep, raw_data1$TechRep), sum) #flies with red eye
   data1<-data.frame(evorep=t1$Group.1, techrep=t1$Group.2, white=t1$x, red=t2$x, Days=i,
-                  Population=rep(rep(c("Ancestral","Constant","Fluctuating"),each=5),3))
+                  Population=rep(rep(c("Anc","Cons","Fluc"),each=5),3))
   accumu_data<-rbind(accumu_data,data1)}
 accumu_data$total=accumu_data$red+accumu_data$white
 accumu_data$ratio<-accumu_data$red/accumu_data$total
@@ -451,7 +451,7 @@ ratio_red_box<-ggplot(subset(accumu_data,Days==1), aes(x=Population, y = ratio_d
   ylab("Proportion of red-eyed flies")+
   scale_y_continuous(breaks = seq(0,0.12,0.02), limits = c(0,0.12))+
   scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
-  geom_signif(comparisons = list(c("Ancestral","Fluctuating"),c("Ancestral","Constant"),c("Fluctuating", "Constant")),
+  geom_signif(comparisons = list(c("Anc","Fluc"),c("Anc","Cons"),c("Fluc", "Cons")),
               test = "wilcox.test",map_signif_level=TRUE,
               step_increase = 0.1,)+
   ggtitle("Day1")+

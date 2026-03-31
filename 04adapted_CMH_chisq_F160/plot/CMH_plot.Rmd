@@ -47,13 +47,15 @@ rm(cmh_cons, cmh_fluc, cmh_merge)
 ```{r}
 cmh_sig <- fread("cmh_merge_sig.txt.gz")
 cmh_sig$chr<-factor(cmh_sig$chr, levels = c("X","2L","2R","3L","3R","4"))
+cmh_sig[Significance=="Fluctuating", Significance:="Fluc"]
+cmh_sig[Significance=="Constant", Significance:="Cons"]
 #chr 4 too short, not visualize
 cmh_sig <- cmh_sig[chr != 4,]
 
 #p-values for CMH between constant VS ancestral
 p1<-ggplot(cmh_sig)+
-  geom_point(data=subset(cmh_sig,Significance=="Fluctuating"), aes(x=pos/1000000,y=-log10(adj_cons_p), color=Significance),cex = 0.1)+
-  geom_point(data=subset(cmh_sig,Significance=="Constant"), aes(x=pos/1000000,y=-log10(adj_cons_p), color=Significance),cex = 0.1)+
+  geom_point(data=subset(cmh_sig,Significance=="Fluc"), aes(x=pos/1000000,y=-log10(adj_cons_p), color=Significance),cex = 0.1)+
+  geom_point(data=subset(cmh_sig,Significance=="Cons"), aes(x=pos/1000000,y=-log10(adj_cons_p), color=Significance),cex = 0.1)+
   geom_point(data=subset(cmh_sig,Significance=="Common"), aes(x=pos/1000000,y=-log10(adj_cons_p), color=Significance),cex = 0.1)+
   facet_grid(~chr, scales = "free_x", space = "free_x")+
   theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
@@ -63,13 +65,13 @@ p1<-ggplot(cmh_sig)+
   scale_y_continuous(breaks = seq(0,50,10), limits = c(0,50))+
   geom_hline(aes(yintercept=-log10(0.05)), color="red", linetype="dashed")+
   scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+ #common, constant, fluctuating
-  labs(x = "postion(Mb)", y = "CMH -log10(p-value)", title="Constant vs Ancestral")#+ylim(0,30)
+  labs(x = "postion(Mb)", y = "CMH -log10(p-value)", title="Cons(F160) vs Anc")#+ylim(0,30)
 
 
 #p-values for CMH between fluctuating VS ancestral
 p2<-ggplot(cmh_sig)+
-  geom_point(data=subset(cmh_sig,Significance=="Fluctuating"), aes(x=pos/1000000,y=-log10(adj_fluc_p), color=Significance),cex = 0.1)+
-  geom_point(data=subset(cmh_sig,Significance=="Constant"), aes(x=pos/1000000,y=-log10(adj_fluc_p), color=Significance),cex = 0.1)+
+  geom_point(data=subset(cmh_sig,Significance=="Fluc"), aes(x=pos/1000000,y=-log10(adj_fluc_p), color=Significance),cex = 0.1)+
+  geom_point(data=subset(cmh_sig,Significance=="Cons"), aes(x=pos/1000000,y=-log10(adj_fluc_p), color=Significance),cex = 0.1)+
   geom_point(data=subset(cmh_sig,Significance=="Common"), aes(x=pos/1000000,y=-log10(adj_fluc_p), color=Significance),cex = 0.1)+
   facet_grid(~chr, scales = "free_x", space = "free_x")+
   theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
@@ -79,11 +81,10 @@ p2<-ggplot(cmh_sig)+
   scale_y_continuous(breaks = seq(0,50,10), limits = c(0,50))+
   geom_hline(aes(yintercept=-log10(0.05)), color="red", linetype="dashed")+
   scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+ #common, constant, fluctuating
-  labs(x = "postion(Mb)", y = "CMH -log10(p-value)", title="Fluctuating vs Ancestral")#+ylim(0,30)
+  labs(x = "postion(Mb)", y = "CMH -log10(p-value)", title="Fluc(F160) vs Anc")#+ylim(0,30)
 
 #combine plot
-merge_p<-ggarrange(p1,p2,nrow=2, heights = c(1,1),
-                                      labels="AUTO")
+merge_p<-ggarrange(p1,p2,nrow=2, heights = c(1,1))
 ggsave(filename = 'CMH_plot_F160.tiff', plot = merge_p, width = 20, height = 16, units = "cm",  dpi = 320, type = "cairo", compression = "lzw")
 
 ```
@@ -93,8 +94,8 @@ ggsave(filename = 'CMH_plot_F160.tiff', plot = merge_p, width = 20, height = 16,
 ```{r}
 fluc_snp<-cmh_sig[adj_fluc_p<=0.05,loci]
 cons_snp<-cmh_sig[adj_cons_p<=0.05,loci]
-venn_data<-list(`Constant`=cons_snp,
-                `Fluctuating`=fluc_snp)
+venn_data<-list(`Cons`=cons_snp,
+                `Fluc`=fluc_snp)
 
 
 p3<-ggvenn(venn_data, label="count", 
