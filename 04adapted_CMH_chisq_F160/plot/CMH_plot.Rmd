@@ -88,7 +88,47 @@ merge_p<-ggarrange(p1,p2,nrow=2, heights = c(1,1))
 ggsave(filename = 'CMH_plot_F160.tiff', plot = merge_p, width = 20, height = 16, units = "cm",  dpi = 320, type = "cairo", compression = "lzw")
 
 ```
+##1.2.1(updated) manhattan plot
+```{r}
+cmh_merge<-fread("cmh_merge_sig.txt.gz")
+cmh_merge[, chr := factor(chr, levels = c("X","2L","2R","3L","3R","4"))]
+cmh_merge[Significance == "Fluctuating", Significance := "Fluc"]
+cmh_merge[Significance == "Constant", Significance := "Cons"]
+#chr 4 too short, not visualize
+cmh_merge1<-subset(cmh_merge, chr !="4")
 
+#p-values for CMH between constant VS ancestral
+p1<-ggplot(cmh_merge1, aes(x=pos/1000000,y=-log10(adj_cons_p), color=Significance))+
+  geom_point(cex = 0.1)+
+  facet_grid(~chr, scales = "free_x", space = "free_x")+
+  theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
+        axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
+        axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")+
+  scale_x_continuous(breaks = seq(0,25,5))+
+  scale_y_continuous(breaks = seq(0,50,10), limits = c(0,50))+
+  geom_hline(aes(yintercept=-log10(0.05)), color="red", linetype="dashed")+
+  scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+  labs(x = "postion(Mb)", y = "CMH -log10(p-value)", title="Cons vs Anc")#+ylim(0,30)
+
+
+#p-values for CMH between fluctuating VS ancestral
+p2<-ggplot(cmh_merge1, aes(x = pos/1000000, y=-log10(adj_fluc_p), color = Significance))+
+  geom_point(cex = 0.1)+
+  facet_grid(~chr, scales = "free_x", space = "free_x")+
+  theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
+        axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
+        axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")+
+  scale_x_continuous(breaks = seq(0,25,5))+
+  scale_y_continuous(breaks = seq(0,50,10), limits = c(0,50))+
+  geom_hline(aes(yintercept=-log10(0.05)), color="red", linetype="dashed")+
+  scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+  labs(x = "postion(Mb)", y = "CMH -log10(p-value)", title="Fluc vs Anc")#+ylim(0,30)
+
+#combine plot
+merge_p<-ggarrange(p1,p2,nrow=2, heights = c(1,1))
+ggsave(filename = "CMH_plot_F160_new.tiff", plot = merge_p, width = 20, height = 16, units = "cm", dpi = 320, type = "cairo", compression = "lzw")
+
+```
 
 ##1.3 Venn plot
 ```{r}

@@ -1,0 +1,261 @@
+---
+title: "permutation_CMH_evo_anc"
+author: "Changyi"
+date: "2026-06-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(poolSeq)
+library(ACER)
+library(data.table)
+library(ggplot2)
+
+```
+
+#1.load data
+```{r}
+#num_rep<-5
+#gen <- c(0,10,20,30,40,50,60)
+sync_file<-read.sync(file = "../../00data/genomic_data/F0_anc.F10-F60_F160_cons.F10-F60_F160_fluc.5rep.sync.gz",
+          repl = rep(1:5,1+6+1+6+1),
+          gen = rep(c(0,10,20,30,40,50,60,160,210,220,230,240,250,260,360), each = 5),#F10-F160 cons F210-F360 fluc
+          polarization = "rising")
+
+```
+
+```{r}
+#extract af and cov information
+freqf <- af(sync_file, gen = c(0,60,260), repl = 1:5)
+colnames(freqf)<-c("Anc_F0.R1", "Cons_F60.R1", "Fluc_F60.R1",
+                   "Anc_F0.R2", "Cons_F60.R2", "Fluc_F60.R2",
+                   "Anc_F0.R3", "Cons_F60.R3", "Fluc_F60.R3",
+                   "Anc_F0.R4", "Cons_F60.R4", "Fluc_F60.R4",
+                   "Anc_F0.R5", "Cons_F60.R5", "Fluc_F60.R5")
+covf <- coverage(sync_file, gen = c(0,60,260), repl = 1:5)
+colnames(covf)<-c("Anc_F0.R1", "Cons_F60.R1", "Fluc_F60.R1",
+                  "Anc_F0.R2", "Cons_F60.R2", "Fluc_F60.R2",
+                  "Anc_F0.R3", "Cons_F60.R3", "Fluc_F60.R3",
+                  "Anc_F0.R4", "Cons_F60.R4", "Fluc_F60.R4",
+                  "Anc_F0.R5", "Cons_F60.R5", "Fluc_F60.R5")
+
+#remove rows contain NA
+ind<-which(is.na(freqf), arr.ind = TRUE)[,1]
+if (length(ind) >0){
+  freqf<-freqf[-ind,]
+  covf<-covf[-ind,]
+}
+saveRDS(freqf, file = "AncF0_ConsF60_FlucF60_AF.rds")
+saveRDS(covf, file = "AncF0_ConsF60_FlucF60_COV.rds")
+
+```
+
+#2. CMH-test
+##functions
+```{r}
+estimate_ne<-function(mat_af,mat_cov){
+  med_Ne=NULL
+  input_rep <- 5
+  NB_trials <- 100
+  off <- 1
+  nb_obs <- dim(mat_af)[1]
+  #ne <- NULL
+  for (i in 1:input_rep){
+    ne=NULL;
+    for(j in 1:NB_trials){
+      set.seed(off)
+      ind <- sample(x = 1:nb_obs, size = 1000)
+      ne <- rbind(ne, data.frame(trial = j,
+                                 ne = estimateNe(p0 = mat_af[ind, 2*i - 1], pt = mat_af[ind, 2*i], #column arrange by replicate, cons_r1, fluc_r1, cons_r2, fluc_r2....
+                                                 cov0 = mat_cov[ind, 2*i - 1], covt = mat_cov[ind, 2*i],
+                                               t = 60, ploidy=2, truncAF=0.05, method=c("P.planI"), 
+                                               poolSize=rep(600, times=2), Ncensus=1250)))
+    off <- off+1
+    }
+  
+    Ne <- median(ne$ne)
+    ind <- which(is.na(ne$ne) | ne$ne<0)
+    if(length(ind)>0){ne <- ne[-ind, ]}
+    med_Ne<-c(med_Ne,round(median(ne$ne)))
+
+  }
+  return(med_Ne)
+}
+```
+
+
+## data analysis
+```{r}
+freqf <- readRDS("AncF0_ConsF60_FlucF60_AF.rds")
+covf <- readRDS("AncF0_ConsF60_FlucF60_COV.rds")
+
+evo_cols <- grepl("^(Cons|Fluc)", colnames(freqf))
+evofreqf<-freqf[, evo_cols]
+evocovf<-covf[, evo_cols]
+
+##autosome
+freqf_auto <- evofreqf[!grepl("^X\\.", rownames(freqf)),]
+covf_auto <- evocovf[!grepl("^X\\.", rownames(covf)),]
+ne_auto<-estimate_ne(freqf_auto, covf_auto)
+cmh_auto<-adapted.cmh.test(freq = freqf_auto, 
+                           coverage = covf_auto, 
+                           Ne = ne_auto, order=0, gen = c(0,60), repl = 1:5, poolSize = rep(600,10))
+##X
+freqf_x <- evofreqf[grepl("^X\\.", rownames(freqf)),]
+covf_x <- evocovf[grepl("^X\\.", rownames(covf)),]
+ne_x<-estimate_ne(freqf_x, covf_x)
+cmh_x<-adapted.cmh.test(freq = freqf_x, 
+                        coverage = covf_x, 
+                        Ne = ne_x, order=0, gen = c(0,60), repl = 1:5, poolSize = rep(600,10))
+
+adj_p<-p.adjust(c(cmh_auto,cmh_x), method = "fdr")
+
+
+ne<-data.table(
+  replicate = paste0("Rep", 1:5),
+  autosome = ne_auto,
+  X = ne_x
+)
+
+cmh_result <- data.table(
+  loci = rownames(freqf),
+  adj_p = adj_p
+)
+
+fwrite(ne, file = "estimated_ne.txt", quote = FALSE, sep ="\t")
+fwrite(cmh_result, file = "CMH_result.txt.gz", quote = FALSE, sep = "\t")
+
+```
+
+##manhattan plot
+```{r}
+cmh <- fread("CMH_result.txt.gz")
+cmh_sig <- cmh[adj_p<0.05,]
+cmh_sig[, c("chr","pos") := tstrsplit(loci, ".", fixed = TRUE)]
+
+cmh_sig[, pos := as.numeric(pos)]
+cmh_sig<-cmh_sig[chr != "4"]
+
+
+p1<-ggplot(cmh_sig, aes(x=pos/1000000,y=-log10(adj_p)))+
+  geom_point(cex = 0.1)+
+  facet_grid(~chr, scales = "free_x", space = "free_x")+
+  theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
+        axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
+        axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")+
+  scale_x_continuous(breaks = seq(0,25,5))+
+  scale_y_continuous(breaks = seq(0,20,5), limits = c(0,20))+
+  geom_hline(aes(yintercept=-log10(0.05)), color="red", linetype="dashed")+
+  #scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+  labs(x = "postion(Mb)", y = "CMH -log10(p-value)", title="Cons vs Fluc")#+ylim(0,30)
+
+ggsave(filename = "CMH_plot_F60_Fluc_vs_Cons.tiff", plot = p1, width = 20, height = 8, units = "cm", dpi = 320, type = "cairo", compression = "lzw")
+
+```
+
+
+#3.AFC
+##3.1 extract the AFC
+```{r}
+#AF
+freqf<-readRDS("AncF0_ConsF60_FlucF60_AF.rds")
+dt_freqf <- as.data.table(freqf, keep.rownames = "loci")
+#cmh
+dt_cmh<-fread("CMH_result.txt.gz")
+
+dt_combined <- merge(dt_cmh, dt_freqf, by = "loci", all.x = TRUE)
+
+#keep only significant SNPs
+dt_sig <- dt_combined[adj_p<0.05,]
+rm(freqf, dt_freqf, dt_cmh, dt_combined)
+
+dt_sig[, `:=`(
+  AFC_Cons_R1 = Cons_F60.R1 - Anc_F0.R1,
+  AFC_Cons_R2 = Cons_F60.R2 - Anc_F0.R2,
+  AFC_Cons_R3 = Cons_F60.R3 - Anc_F0.R3,
+  AFC_Cons_R4 = Cons_F60.R4 - Anc_F0.R4,
+  AFC_Cons_R5 = Cons_F60.R5 - Anc_F0.R5,
+  AFC_Fluc_R1 = Fluc_F60.R1 - Anc_F0.R1,
+  AFC_Fluc_R2 = Fluc_F60.R2 - Anc_F0.R2,
+  AFC_Fluc_R3 = Fluc_F60.R3 - Anc_F0.R3,
+  AFC_Fluc_R4 = Fluc_F60.R4 - Anc_F0.R4,
+  AFC_Fluc_R5 = Fluc_F60.R5 - Anc_F0.R5
+)]
+
+dt_sig[, `:=`(
+  median_AFC_Cons = apply(.SD, 1, median, na.rm =TRUE)
+  ), .SDcols = paste0("AFC_Cons_R",1:5)]
+dt_sig[, `:=`(
+  median_AFC_Fluc = apply(.SD, 1, median, na.rm =TRUE)
+  ), .SDcols = paste0("AFC_Fluc_R",1:5)]
+
+#polarize to increase in the constant population
+dt_sig[, `:=`(
+  polar_median_AFC_cons = fifelse(median_AFC_Cons>0, median_AFC_Cons, (-1)*median_AFC_Cons),
+  polar_median_AFC_fluc = fifelse(median_AFC_Cons>0, median_AFC_Fluc, (-1)*median_AFC_Fluc)
+)]
+
+
+fwrite(dt_sig,
+       file = "CMH_sig_AFC.txt.gz",
+       quote = FALSE, sep="\t")
+```
+
+##3.2 AFC correlation
+```{r}
+dt_sig <- fread("CMH_sig_AFC.txt.gz")
+sel_cols <- c(paste0("AFC_Cons_R",1:5), paste0("AFC_Fluc_R",1:5))
+dt_afc<-dt_sig[, ..sel_cols]
+      
+colnames(dt_afc)<-paste0(rep(c("cons","fluc"),each=5),
+                     rep(1:5,2))
+cor_matrix<-cor(na.omit(dt_afc))
+
+
+##  different color series
+## COL2: Get diverging colors
+COL2= c('RdBu', 'BrBG', 'PiYG', 'PRGn', 'PuOr', 'RdYlBu')
+## COL1: Get sequential colors
+## c('Oranges', 'Purples', 'Reds', 'Blues', 'Greens', 'Greys', 'OrRd', 'YlOrRd', 'YlOrBr', 'YlGn')
+
+pdf("AFC_correlation.pdf")
+corrplot(cor_matrix, order = 'original', type = 'upper', tl.pos = 'd', tl.cex = 1, col.lim = c(-0.3,1))
+corrplot(cor_matrix, add = TRUE, type = 'lower', method = 'number', order = 'original',
+         col = 'black', diag = FALSE, tl.pos = 'n', cl.pos = 'n')
+dev.off()
+
+```
+
+
+##3.3 AFC distribution
+```{r}
+dt_sig <- fread("CMH_sig_AFC.txt.gz")
+
+dt_long <- melt(dt_sig,
+                measure.vars = c("polar_median_AFC_cons", "polar_median_AFC_fluc"))
+
+
+
+p1<-ggplot(dt_long, aes(x = value, fill = variable))+
+  geom_density(trim = TRUE, alpha = 0.3)+
+  scale_fill_manual(values = c("#4fc0c6","#ea811c"))+
+  geom_vline(
+    xintercept = c(mean(dt_sig$polar_median_AFC_cons, na.rm = TRUE), mean(dt_sig$polar_median_AFC_fluc, na.rm = TRUE)),
+    linetype="dashed", color=c("#4fc0c6","#ea811c")
+    ) +
+  labs(
+    x="Median Allele Frequency Change",
+    y="Density",
+    title="SNPs significant between Fluc and Cons"
+    ) +
+  xlim(c(-1,1))+ylim(c(0,15))+
+  theme_bw()+
+  theme(legend.position = 'none')
+
+plot(p1)
+ggsave("median_AFC_distribution.pdf", plot=p1, width=10,height = 6)
+```

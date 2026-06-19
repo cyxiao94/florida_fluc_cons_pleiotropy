@@ -1,0 +1,284 @@
+---
+title: "permutation_CMH_evo_anc"
+author: "Changyi"
+date: "2026-06-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(poolSeq)
+library(ACER)
+library(data.table)
+library(ggplot2)
+
+```
+
+#1.load data
+```{r}
+#num_rep<-5
+#gen <- c(0,10,20,30,40,50,60)
+sync_file<-read.sync(file = "../../00data/genomic_data/F0_anc.F10-F60_F160_cons.F10-F60_F160_fluc.5rep.sync.gz",
+          repl = rep(1:5,1+6+1+6+1),
+          gen = rep(c(0,10,20,30,40,50,60,160,210,220,230,240,250,260,360), each = 5),#F10-F160 cons F210-F360 fluc
+          polarization = "rising")
+
+```
+
+```{r}
+#extract af and cov information
+freqf <- af(sync_file, gen = c(0,160,360), repl = 1:5)
+colnames(freqf)<-c("Anc_F0.R1.freq","Cons_F160.R1.freq","Fluc_F160.R1.freq",
+                   "Anc_F0.R2.freq","Cons_F160.R2.freq","Fluc_F160.R2.freq",
+                   "Anc_F0.R3.freq","Cons_F160.R3.freq","Fluc_F160.R3.freq",
+                   "Anc_F0.R4.freq","Cons_F160.R4.freq","Fluc_F160.R4.freq",
+                   "Anc_F0.R5.freq","Cons_F160.R5.freq","Fluc_F160.R5.freq")
+covf <- coverage(sync_file, gen = c(0,160,360), repl = 1:5)
+colnames(covf)<-c("Anc_F0.R1.cov","Cons_F160.R1.cov","Fluc_F160.R1.cov",
+                  "Anc_F0.R2.cov","Cons_F160.R2.cov","Fluc_F160.R2.cov",
+                  "Anc_F0.R3.cov","Cons_F160.R3.cov","Fluc_F160.R3.cov",
+                  "Anc_F0.R4.cov","Cons_F160.R4.cov","Fluc_F160.R4.cov",
+                  "Anc_F0.R5.cov","Cons_F160.R5.cov","Fluc_F160.R5.cov")
+
+#remove rows contain NA
+ind<-which(is.na(freqf), arr.ind = TRUE)[,1]
+if (length(ind) >0){
+  freqf<-freqf[-ind,]
+  covf<-covf[-ind,]
+}
+saveRDS(freqf, file = "Anc_ConsF160_FlucF160_AF.rds")
+saveRDS(covf, file = "Anc_ConsF160_FlucF160_COV.rds")
+
+
+anc_cols <- grepl("^Anc",colnames(freqf))
+evo_cols <- grepl("^(Cons|Fluc)",colnames(freqf));
+loci<-rownames(freqf)
+
+anc_freqf_auto <- freqf[!grepl("^X",loci), anc_cols]
+anc_cov_auto <- covf[!grepl("^X",loci), anc_cols]
+anc_freqf_x <- freqf[grepl("^X",loci), anc_cols]
+anc_cov_x <- covf[grepl("^X",loci), anc_cols]
+
+evo_freqf_auto <- freqf[!grepl("^X",loci), evo_cols]
+evo_cov_auto <- covf[!grepl("^X",loci), evo_cols]
+evo_freqf_x <- freqf[grepl("^X",loci), evo_cols]
+evo_cov_x <- covf[grepl("^X",loci), evo_cols]
+
+```
+
+#functions
+```{r}
+permu_estimate_ne<-function(mat_af,mat_cov){
+  med_Ne=NULL
+  input_rep <- 5
+  NB_trials <- 100
+  off <- 1
+  nb_obs <- dim(mat_af)[1]
+  #ne <- NULL
+  for (i in 1:input_rep){
+    ne=NULL;
+    for(j in 1:NB_trials){
+      set.seed(off)
+      ind <- sample(x = 1:nb_obs, size = 1000)
+      ne <- rbind(ne, data.frame(trial = j,
+                                 ne = estimateNe(p0 = mat_af[ind, i], pt = mat_af[ind, i+5], 
+                                                 cov0 = mat_cov[ind, i], covt = mat_cov[ind, i+5],
+                                               t = 160, ploidy=2, truncAF=0.05, method=c("P.planI"), 
+                                               poolSize=rep(600, times=2), Ncensus=1250)))
+    off <- off+1
+    }
+  
+    Ne <- median(ne$ne)
+    ind <- which(is.na(ne$ne) | ne$ne<0)
+    if(length(ind)>0){ne <- ne[-ind, ]}
+    med_Ne<-c(med_Ne,round(median(ne$ne)))
+
+  }
+  return(med_Ne)
+}
+
+permu_cmh_test <- function(pop_af, pop_cov){
+  ##autosome
+  pop_af_auto <- pop_af[!grepl("^X\\.", rownames(pop_af)),]
+  pop_cov_auto <- pop_cov[!grepl("^X\\.", rownames(pop_cov)),]
+  pop_ne_auto<-permu_estimate_ne(pop_af_auto, pop_cov_auto)
+  pop_cmh_auto<-adapted.cmh.test(freq = pop_af_auto, 
+                                 coverage = pop_cov_auto, 
+                                 Ne = pop_ne_auto, order=1, gen = c(0,160), repl = 1:5, poolSize = rep(600,10))
+  ##X
+  pop_af_x <- pop_af[grepl("^X\\.", rownames(pop_af)),]
+  pop_cov_x <- pop_cov[grepl("^X\\.", rownames(pop_cov)),]
+  pop_ne_x<-permu_estimate_ne(pop_af_x, pop_cov_x)
+  pop_cmh_x<-adapted.cmh.test(freq = pop_af_x, 
+                              coverage = pop_cov_x, 
+                              Ne = pop_ne_auto, order=1, gen = c(0,160), repl = 1:5, poolSize = rep(600,10))
+
+  pop_adj_p<-p.adjust(c(pop_cmh_auto,pop_cmh_x), method = "fdr")
+  return(pop_adj_p)
+}
+
+```
+
+#2. permutation
+```{r}
+#run permutation_cmh.R on the cluster!!!!
+#Follow the suggestion from Reviewer2
+#the allele frequency of each SNP will be randomly shuffled among evolved replicates
+
+library(optparse)
+
+option_list <- list(
+  make_option(c("-i", "--permu"), type = "integer")
+)
+
+opt <- parse_args(OptionParser(option_list = option_list))
+
+permu <- opt$permu
+
+set.seed(as.integer(permu))
+
+freqf<-readRDS("Anc_ConsF60_FlucF60_AF.rds")
+covf<-readRDS("Anc_ConsF60_FlucF60_COV.rds")
+
+anc_cols <- grepl("^Anc",colnames(freqf))
+evo_cols <- grepl("^(Cons|Fluc)",colnames(freqf));
+
+anc_freqf <- freqf[, anc_cols]
+anc_covf <- covf[, anc_cols]
+
+evo_freqf<-freqf[,evo_cols]
+evo_covf<-covf[,evo_cols]
+
+#permute evolved replicates
+cols <- 1:10
+
+perm_idx <- t(replicate(nrow(evo_freqf), sample(cols)))
+
+af_perm <- evo_freqf
+cov_perm <- evo_covf
+
+for(i in seq_len(nrow(evo_freqf))){
+  af_perm[i, cols]  <- evo_freqf[i, perm_idx[i, ]]
+  cov_perm[i, cols] <- evo_covf[i, perm_idx[i, ]]
+}
+
+#cons
+pop_af<-cbind(anc_freqf,af_perm[,c(1,3,5,7,9)])
+pop_cov<-cbind(anc_covf,cov_perm[,c(1,3,5,7,9)])
+cons_adj_p<-permu_cmh_test(pop_af, pop_cov)
+
+
+#fluc
+pop_af<-cbind(anc_freqf,af_perm[,c(2,4,6,8,10)])
+pop_cov<-cbind(anc_covf,cov_perm[,c(2,4,6,8,10)])
+fluc_adj_p<-permu_cmh_test(pop_af, pop_cov)
+
+
+#compare between pop1 and pop2
+dt_cmh<-data.table(loci=rownames(anc_freqf),
+                   p_cons=cons_adj_p,
+                   p_fluc=fluc_adj_p)
+dt_cmh<-dt_cmh[p_cons<0.05 | p_fluc < 0.05,]
+
+#extract the AF information
+dt_freqf <- as.data.table(freqf, keep.rownames = "loci")
+dt_combined <- merge(dt_cmh, dt_freqf, by = "loci", all.x = TRUE)
+dt_combined[, `:=`(
+  AFC_Cons_R1 = Cons_F60.R1.freq-Anc_F0.R1.freq,
+  AFC_Cons_R2 = Cons_F60.R2.freq-Anc_F0.R2.freq,
+  AFC_Cons_R3 = Cons_F60.R3.freq-Anc_F0.R3.freq,
+  AFC_Cons_R4 = Cons_F60.R4.freq-Anc_F0.R4.freq,
+  AFC_Cons_R5 = Cons_F60.R5.freq-Anc_F0.R5.freq,
+  AFC_Fluc_R1 = Fluc_F60.R1.freq-Anc_F0.R1.freq,
+  AFC_Fluc_R2 = Fluc_F60.R2.freq-Anc_F0.R2.freq,
+  AFC_Fluc_R3 = Fluc_F60.R3.freq-Anc_F0.R3.freq,
+  AFC_Fluc_R4 = Fluc_F60.R4.freq-Anc_F0.R4.freq,
+  AFC_Fluc_R5 = Fluc_F60.R5.freq-Anc_F0.R5.freq
+)]
+
+dt_combined[, `:=`(
+  median_AFC_Cons = apply(.SD, 1, median, na.rm =TRUE)
+  ), .SDcols = paste0("AFC_Cons_R",1:5)]
+dt_combined[, `:=`(
+  median_AFC_Fluc = apply(.SD, 1, median, na.rm =TRUE)
+  ), .SDcols = paste0("AFC_Fluc_R",1:5)]
+
+sel_cols <- c("loci", "p_cons", "p_fluc", "median_AFC_Cons", "median_AFC_Fluc")
+dt_sub <- dt_combined[, ..sel_cols]
+fwrite(dt_sub, 
+       file = paste0("Permutation", permu, "_CMH_result.txt.gz"),
+       quote = FALSE, sep="\t")
+
+#write summary information
+num_sig_cons<-sum(dt_sub$p_cons<0.05)
+num_sig_fluc<-sum(dt_sub$p_fluc<0.05)
+num_sig_total<-nrow(dt_sub[p_cons<0.05 | p_fluc<0.05,])
+num_sig_share<-nrow(dt_sub[p_cons<0.05 & p_fluc<0.05,])
+percent_share<-num_sig_share/num_sig_total
+
+#AFC in the Cons population
+#SNPs significant in the constant population
+#polarize to increase in the cons
+dt_sub[, polarize_median_AFC_Cons := abs(median_AFC_Cons)]
+dt_sub[, polarize_median_AFC_Fluc := fifelse(median_AFC_Cons>0, median_AFC_Fluc, (-1)*median_AFC_Fluc)]
+#average AFC across the genome
+meanAFC_cons_sig_in_cons <- dt_sub[p_cons <0.05, mean(polarize_median_AFC_Cons, na.rm =TRUE)]
+meanAFC_cons_sig_in_fluc <- dt_sub[p_cons <0.05, mean(polarize_median_AFC_Fluc, na.rm =TRUE)]
+
+#AFC in the Fluc population
+#SNPs significant in the constant population
+#polarize to increase in the fluc
+dt_sub[, polarize_median_AFC_Cons := fifelse(median_AFC_Fluc>0, median_AFC_Cons, (-1)*median_AFC_Cons)]
+dt_sub[, polarize_median_AFC_Fluc := abs(median_AFC_Fluc)]
+#average AFC across the genome
+meanAFC_fluc_sig_in_cons <- dt_sub[p_fluc <0.05, mean(polarize_median_AFC_Cons, na.rm =TRUE)]
+meanAFC_fluc_sig_in_fluc <- dt_sub[p_fluc <0.05, mean(polarize_median_AFC_Fluc, na.rm =TRUE)]
+
+cat(
+  paste(
+    permu,
+    num_sig_cons,
+    num_sig_fluc,
+    num_sig_total,
+    num_sig_share,
+    percent_share,
+    meanAFC_cons_sig_in_cons,
+    meanAFC_cons_sig_in_fluc,
+    meanAFC_fluc_sig_in_fluc,
+    meanAFC_fluc_sig_in_cons,
+    sep="\t"),
+  "\n",
+  file = paste0("permutation_result/Permutation", permu, "_summary_result.txt")
+)
+
+
+ 
+```
+
+##permutation result
+```{r}
+perm_result <- fread("summary_permutation_cmh_test.txt")
+
+#p-value for the proportion of SNP shared
+p_value <- (sum(perm_result$Permutation<0.064)+1)/1001
+
+#p-value for the allele frequency change differences
+
+#SNPs signifciant in the Fluc population
+perm_result[, `:=`(
+  diff_cons_snp = meanAFC_cons_sig_in_cons - meanAFC_cons_sig_in_fluc,
+  diff_fluc_snp = meanAFC_fluc_sig_in_fluc - meanAFC_fluc_sig_in_cons
+)]
+
+#observed 
+
+obs_cons_snp<-
+obs_fluc_snp<-
+
+
+
+
+```

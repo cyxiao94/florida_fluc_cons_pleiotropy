@@ -14,6 +14,7 @@ library(ggplot2)
 library(data.table)
 library(ggpubr)
 library(ggvenn)
+library(poolSeq)
 ```
 
 
@@ -88,6 +89,51 @@ ggsave(filename = "CMH_plot_F60.tiff", plot = merge_p, width = 20, height = 16, 
 
 ```
 
+##1.2.1(updated) manhattan plot
+```{r}
+cmh_merge<-fread("cmh_merge_sig.txt.gz")
+cmh_merge[, chr := factor(chr, levels = c("X","2L","2R","3L","3R","4"))]
+cmh_merge[category == "Fluctuating", category := "Fluc"]
+cmh_merge[category == "Constant", category := "Cons"]
+#chr 4 too short, not visualize
+cmh_merge1<-subset(cmh_merge, chr !="4")
+
+#p-values for CMH between constant VS ancestral
+p1<-ggplot(cmh_merge1, aes(x=pos/1000000,y=-log10(adj_cons_p), color=category))+
+  geom_point(cex = 0.1)+
+  facet_grid(~chr, scales = "free_x", space = "free_x")+
+  theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
+        axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
+        axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")+
+  scale_x_continuous(breaks = seq(0,25,5))+
+  scale_y_continuous(breaks = seq(0,20,5), limits = c(0,20))+
+  geom_hline(aes(yintercept=-log10(0.05)), color="red", linetype="dashed")+
+  scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+  labs(x = "postion(Mb)", y = "CMH -log10(p-value)", title="Cons vs Anc")#+ylim(0,30)
+
+
+#p-values for CMH between fluctuating VS ancestral
+p2<-ggplot(cmh_merge1, aes(x = pos/1000000, y=-log10(adj_fluc_p), color = category))+
+  geom_point(cex = 0.1)+
+  facet_grid(~chr, scales = "free_x", space = "free_x")+
+  theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
+        axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
+        axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")+
+  scale_x_continuous(breaks = seq(0,25,5))+
+  scale_y_continuous(breaks = seq(0,20,5), limits = c(0,20))+
+  geom_hline(aes(yintercept=-log10(0.05)), color="red", linetype="dashed")+
+  scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+  labs(x = "postion(Mb)", y = "CMH -log10(p-value)", title="Fluc vs Anc")#+ylim(0,30)
+
+#combine plot
+merge_p<-ggarrange(p1,p2,nrow=2, heights = c(1,1))
+ggsave(filename = "CMH_plot_F60_new.tiff", plot = merge_p, width = 20, height = 16, units = "cm", dpi = 320, type = "cairo", compression = "lzw")
+
+```
+
+
+
+
 
 ##1.3 Venn plot
 ```{r}
@@ -111,9 +157,65 @@ ggsave("venn_cmh_fluc_cons_F60.pdf", plot = p3)
 #fluctuating has 44932 significant SNPs
 #5924 SNPs are shared
 ```
+
+## 1.4 check the starting allele frequency distribution
+```{r}
+input_gen <- c(0, #ancestral
+               10, 20, 30, 40, 50, 60, 160,   #constant
+               210, 220, 230, 240, 250, 260, 360)  #fluctuating
+num_reps <- 5
+
+#load sync file
+sync_file <- read.sync(file = "../../00data/genomic_data/F0_anc.F10-F60_F160_cons.F10-F60_F160_fluc.5rep.sync.gz",
+                       gen = rep(input_gen, each=num_reps), repl = rep(1:num_reps, length(input_gen)), polarization = "minor")
+freqf <- af(sync_file, repl = 1:5, gen = 0)
+freqf<-as.data.table(freqf, keep.rownames = "loci")
+freqf[, median_AF := 
+        apply(.SD, 1, median, na.rm =TRUE), 
+      .SDcols = c("F0.R1.freq", "F0.R2.freq", "F0.R3.freq", "F0.R4.freq", "F0.R5.freq")]
+#polarize to the minor allele frequency
+##polarization from poolSeq package take all the sample information, here we polarize using the ancestral population only
+freqf[, polar_median_AF := fifelse(median_AF<= 0.5, median_AF, (1-median_AF))]
+
+cmh<-fread("cmh_merge_sig.txt.gz")
+
+#SNPs significant in the fluctuating populations
+freqf_fluc<-merge(freqf, cmh[adj_fluc_p<0.05,"loci"], by = "loci")
+#SNPs significant in the fluctuating populations
+freqf_cons<-merge(freqf, cmh[adj_cons_p<0.05,"loci"], by = "loci")
+#random sample SNPs from the genome-wide
+num_sample <- as.integer((nrow(freqf_fluc)+nrow(freqf_cons))/2)
+freqf_sample <- freqf[sample(.N, num_sample)]
+
+#plot the starting AF distribution
+plot_af <- function(freqf, color_freq, plot_title){
+  p_af<-ggplot(freqf, aes(x=polar_median_AF))+
+    geom_density(fill = color_freq, alpha = 0.5)+
+    theme(legend.position = 'none')+
+    labs(x="Median Allele frequency", y = "Density", title = plot_title)+
+    xlim(c(0,0.5))+ylim(c(0,16))+
+    theme_bw()+
+    theme(title = element_text(size=18),
+          axis.title.x = element_text(size=16),
+          axis.text = element_text(size=12))
+  return(p_af)
+}
+p_fluc<-plot_af(freqf_fluc, color_freq = "#ea811c", plot_title  = "Fluctuating Significant SNPs")
+p_cons<-plot_af(freqf_cons, color_freq = "#4fc0c6", plot_title  = "Constant Signifiacnt SNPs")
+p_sample<-plot_af(freqf_sample, color_freq = "grey", plot_title  = "Genomewide SNPs")
+
+p_all<-ggarrange(p_fluc, p_cons, p_sample,
+                 nrow=3)
+plot(p_all)
+
+ggsave("Starting_AF_distribution.pdf",plot = p_all, width = 8, height = 10)
+```
+
 #2.Chisq result
 ##2.1 load data
 ```{r}
+
+
 #cons population
 chisq_cons<-fread('../../00data/genomic_data/constant_F0_F60_Chisq.result.gz', 
                   select = c("chr","pos","r1_adj_p","r2_adj_p","r3_adj_p","r4_adj_p","r5_adj_p"))
@@ -218,6 +320,7 @@ ggsave("venn_chisq_fluc_cons_F60.pdf", plot = p4)
 
 ##2.3. mahattan plot from the chisq result
 ```{r}
+chisq_merge_sig<-fread("chisq_merge_sig.txt.gz")
 #not visualize chr4, too small
 chisq_merge_sig<-chisq_merge_sig[chr != "4",]
 
@@ -263,7 +366,125 @@ p_merge<-annotate_figure(p_merge,
                          left = text_grob("Chisq   -log10(P-value)", rot=90, vjust = 1, size = 15))
 #plot(p_fluc1)
 
-ggsave(filename = "Chisq_plot_F60.tiff", plot = p_merge, width = 40, height = 32, units = "cm", dpi = 320, type = "cairo", compression="lzw")
+ggsave(filename = "Chisq_plot_F60.tiff", plot = p_merge, width = 40, height = 32, units = "cm", dpi = 640, type = "cairo", compression="lzw")
 #ggsave('CMH_plot_F60.tiff', plot = merge_p, width = 20, height = 16, units = "cm")
 
+```
+
+##2.4. mahattan plot from the chisq result--exlucede focal population 
+```{r}
+#here for each replicate, exlucde the significant SNPs in the focal population
+chisq_merge_sig <- fread("chisq_merge_sig.txt.gz")
+#not visualize chr4, too small
+chisq_merge_sig<-chisq_merge_sig[chr != "4",]
+
+#update the significance for each replicate
+
+#fluc_single -- SNPs only significant in one fluctuating replicate
+#cons_single -- SNPs only significant in one constant replicate
+#fluc_multi -- SNPs significant in multiple fluctuating replicates
+#cons_multi -- SNPs significant in multiple constant replicates
+#shared -- at least one fluctuating and one constant replicate show significant
+
+fluc_cols <- c("Fluc_R1","Fluc_R2","Fluc_R3","Fluc_R4","Fluc_R5")
+cons_cols <- c("Cons_R1","Cons_R2","Cons_R3","Cons_R4","Cons_R5")
+chisq_merge_sig[, fluc_nsig :=
+                  rowSums(.SD < 0.05, na.rm = TRUE), .SDcols = fluc_cols]
+chisq_merge_sig[, cons_nsig :=
+                  rowSums(.SD < 0.05, na.rm = TRUE), .SDcols = cons_cols]
+
+chisq_merge_sig[, new_significance := fifelse(
+  Significance == "Common", "Shared",
+  fifelse(
+    Significance == "Fluc",
+    fifelse(fluc_nsig > 1, "Fluc_multi", "Fluc_single"),
+    fifelse(cons_nsig > 1, "Cons_multi", "Cons_single")
+  )
+)]
+chisq_merge_sig[, new_significance := factor(new_significance,
+                                             levels = c("Shared", "Cons_single", "Cons_multi", "Fluc_single", "Fluc_multi"))]
+
+manhattan_plot<-function(chisq_dt,repl){
+  color_common <- "#6e326e"
+  color_cons_single <- "grey"
+  color_cons_multi <- "#4fc0c6"
+  color_fluc_single <- "grey"
+  color_fluc_multi <- "#e8a11c"
+  #color_fluc_multi <- "red"
+  
+  
+  ggplot(chisq_dt, aes(x=pos/1e6,y=-log10(.data[[repl]]), colour = .data[["new_significance"]]))+
+    geom_point(size=0.1)+
+    scale_color_manual(values = c(color_common,color_cons_single, color_cons_multi,color_fluc_single, color_fluc_multi))+
+    facet_wrap(~chr, scales = "free_x", nrow=1)+
+    geom_hline(yintercept = -log10(0.05), linetype="dashed", color="red")+
+    labs(x = "postion(Mb)", y = "", title=repl)+
+    scale_x_continuous(breaks = seq(0,25,5))+
+    #scale_y_continuous(breaks = seq(0,20,5), limits = c(0,20))+
+    theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
+        axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
+        axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none",
+        strip.text = element_text(size = 10), 
+        strip.background = element_rect(fill = "lightgrey", colour = "white", size=0.2))
+}
+p_fluc1<-manhattan_plot(chisq_merge_sig, "Fluc_R1")
+p_fluc2<-manhattan_plot(chisq_merge_sig, "Fluc_R2")
+p_fluc3<-manhattan_plot(chisq_merge_sig, "Fluc_R3")
+p_fluc4<-manhattan_plot(chisq_merge_sig, "Fluc_R4")
+p_fluc5<-manhattan_plot(chisq_merge_sig, "Fluc_R5")
+
+p_cons1<-manhattan_plot(chisq_merge_sig, "Cons_R1")
+p_cons2<-manhattan_plot(chisq_merge_sig, "Cons_R2")
+p_cons3<-manhattan_plot(chisq_merge_sig, "Cons_R3")
+p_cons4<-manhattan_plot(chisq_merge_sig, "Cons_R4")
+p_cons5<-manhattan_plot(chisq_merge_sig, "Cons_R5")
+
+p_merge<-ggarrange(p_cons1, p_fluc1,
+                   p_cons2, p_fluc2,
+                   p_cons3, p_fluc3,
+                   p_cons4, p_fluc4,
+                   p_cons5, p_fluc5,
+                   nrow = 5, ncol = 2)
+p_merge<-annotate_figure(p_merge,
+                         left = text_grob("Chisq   -log10(P-value)", rot=90, vjust = 1, size = 15))
+#plot(p_fluc1)
+
+ggsave(filename = "Chisq_plot_F60_excludefocalSNP.tiff", plot = p_merge, width = 40, height = 32, units = "cm", dpi = 640, type = "cairo", compression="lzw")
+#ggsave('CMH_plot_F60.tiff', plot = merge_p, width = 20, height = 16, units = "cm")
+
+```
+
+
+
+##2.5 RFS 
+```{r}
+chisq_merge_sig <- fread("chisq_merge_sig.txt.gz")
+cols_fluc <- c(paste0("Fluc_R",1:5))
+cols_cons <- c(paste0("Cons_R",1:5))
+
+chisq_merge_sig[, n_sig_fluc := rowSums(.SD < 0.05), .SDcols = cols_fluc]
+chisq_merge_sig[, n_sig_cons := rowSums(.SD < 0.05), .SDcols = cols_cons]
+
+p1<-ggplot(chisq_merge_sig[n_sig_fluc>0,],aes(x=factor(n_sig_fluc)))+
+  geom_bar()+
+  scale_y_log10()+
+  geom_text(
+    stat = "count", aes(label = after_stat(count)),
+    vjust = -0.3
+  )+
+  labs(title = "Fluctuating", x="Number of Replicates", y = "Number of SNPs")+
+  theme_bw()
+
+p2<-ggplot(chisq_merge_sig[n_sig_cons>0,],aes(x=factor(n_sig_cons)))+
+  geom_bar()+
+  scale_y_log10()+
+  geom_text(
+    stat = "count", aes(label = after_stat(count)),
+    vjust = -0.3
+  )+
+  labs(title = "Constant", x="Number of Replicates", y = "Number of SNPs")+
+  theme_bw()
+
+p_merge<-ggarrange(p1,p2)
+ggsave("RFS_Chisqtest.pdf", plot = p_merge, width = 10, height = 6)
 ```

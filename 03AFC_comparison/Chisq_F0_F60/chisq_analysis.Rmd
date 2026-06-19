@@ -186,10 +186,118 @@ ggsave("Chisq_median_AFC_distribution.pdf", plot=p_merge, width=8,height = 5)
 
 ```
 
+##2.4 plot each replicate
+```{r}
+af<-fread("Chisq_sig_SNP_af.txt.gz")
+setnames(af, old = "rn", new="loci")
+chisq_result <- fread("Chisq_result_sigSNP_fluc_cons.txt.gz")
+
+sub_cols <- c("loci",
+              paste0("Fluc_R",1:5),
+              paste0("Cons_R",1:5),
+              paste0("AFC_cons_r",1:5),
+              paste0("AFC_fluc_r",1:5))
+chisq_af<-merge(af,chisq_result)
+chisq_af<-chisq_af[, ..sub_cols]
+
+#make a consistent name for the data
+setnames(chisq_af,
+         old = c(paste0("AFC_fluc_r",1:5), paste0("AFC_cons_r",1:5)),
+         new = c(paste0("AFC_Fluc_R",1:5), paste0("AFC_Cons_R",1:5)))
+
+compare_AFC<- function(treatment, repl){
+
+  rep_id <- paste0(treatment,"_R",repl)
+  #extract SNPs that significant in the
+  chisq_af_rep <- chisq_af[get(rep_id)<0.05,]
+  #chisq cloumn
+  focal_chisq_col <- rep_id
+  focal_afc_col <- paste0("AFC_", rep_id)
+  
+  #polarize to incrase AF in the tested replicate
+  chisq_af_rep[, `:=`(
+    polarAFC_Fluc_R1 = fifelse(get(focal_afc_col)>0, AFC_Fluc_R1, (-1)*AFC_Fluc_R1),
+    polarAFC_Fluc_R2 = fifelse(get(focal_afc_col)>0, AFC_Fluc_R2, (-1)*AFC_Fluc_R2),
+    polarAFC_Fluc_R3 = fifelse(get(focal_afc_col)>0, AFC_Fluc_R3, (-1)*AFC_Fluc_R3),
+    polarAFC_Fluc_R4 = fifelse(get(focal_afc_col)>0, AFC_Fluc_R4, (-1)*AFC_Fluc_R4),
+    polarAFC_Fluc_R5 = fifelse(get(focal_afc_col)>0, AFC_Fluc_R5, (-1)*AFC_Fluc_R5),
+    polarAFC_Cons_R1 = fifelse(get(focal_afc_col)>0, AFC_Cons_R1, (-1)*AFC_Cons_R1),
+    polarAFC_Cons_R2 = fifelse(get(focal_afc_col)>0, AFC_Cons_R2, (-1)*AFC_Cons_R2),
+    polarAFC_Cons_R3 = fifelse(get(focal_afc_col)>0, AFC_Cons_R3, (-1)*AFC_Cons_R3),
+    polarAFC_Cons_R4 = fifelse(get(focal_afc_col)>0, AFC_Cons_R4, (-1)*AFC_Cons_R4),
+    polarAFC_Cons_R5 = fifelse(get(focal_afc_col)>0, AFC_Cons_R5, (-1)*AFC_Cons_R5)
+  )]
+
+  #exclude focal replicate
+  if (treatment == "Fluc"){
+    within_treatment_cols <- paste0("polarAFC_Fluc_R", setdiff(1:5, repl))
+    between_treatment_cols <- paste0("polarAFC_Cons_R", setdiff(1:5, repl))
+  } else {
+    within_treatment_cols <- paste0("polarAFC_Cons_R", setdiff(1:5, repl))
+    between_treatment_cols <- paste0("polarAFC_Fluc_R", setdiff(1:5, repl))
+  }
+
+  #obtain the mean AFC for the remaining replicate both within treatment and across treatment
+  chisq_af_rep[, Within_Treatment :=
+                 rowMeans(.SD, na.rm = TRUE),
+                 .SDcols = within_treatment_cols]
+  chisq_af_rep[, Between_Treatment :=
+                 rowMeans(.SD, na.rm = TRUE),
+                 .SDcols = between_treatment_cols]
+
+  dt_long <- melt(chisq_af_rep,
+                  measure.vars = c("Within_Treatment", "Between_Treatment"))
+
+  w_test<-wilcox.test(chisq_af_rep$Within_Treatment, chisq_af_rep$Between_Treatment, paired = TRUE, 
+                      alternative = "greater")
+
+  medianAFC_within <- median(chisq_af_rep$Within_Treatment, na.rm = TRUE)
+  medianAFC_between <- median(chisq_af_rep$Between_Treatment, na.rm = TRUE)
+
+
+  p_compare <- ggplot(dt_long, aes(x=variable, y=value, color=variable))+
+    geom_violin()+
+    geom_boxplot(width = 0.1)+
+    geom_hline(yintercept = medianAFC_within, color = "#F8766D", linetype = "dashed")+
+    geom_hline(yintercept = medianAFC_between, color = "#00BFC4", linetype = "dashed")+
+    ylim(-0.45,0.65)+
+    labs(title = rep_id, x="Comparison", y = "Allele Frequency Change")+
+    annotate(
+      "text",
+      x=1.5,
+      y=0.5,
+      size = 3,
+      label = paste0("Wilcoxon (one-sided)\nP = ", signif(w_test$p.value,3)))+
+    theme_bw()+
+    theme(legend.position = "none")
+  #print(range(dt_long$value))
+  return(p_compare)
+}
+
+p_fluc_r1 <- compare_AFC(treatment = "Fluc", repl = 1)
+p_fluc_r2 <- compare_AFC(treatment = "Fluc", repl = 2)
+p_fluc_r3 <- compare_AFC(treatment = "Fluc", repl = 3)
+p_fluc_r4 <- compare_AFC(treatment = "Fluc", repl = 4)
+p_fluc_r5 <- compare_AFC(treatment = "Fluc", repl = 5)
+
+p_cons_r1 <- compare_AFC(treatment = "Cons", repl = 1)
+p_cons_r2 <- compare_AFC(treatment = "Cons", repl = 2)
+p_cons_r3 <- compare_AFC(treatment = "Cons", repl = 3)
+p_cons_r4 <- compare_AFC(treatment = "Cons", repl = 4)
+p_cons_r5 <- compare_AFC(treatment = "Cons", repl = 5)
+```
+
+```{r}
+p_merge<-ggarrange(p_fluc_r1, p_fluc_r2, p_fluc_r3, p_fluc_r4, p_fluc_r5,
+          p_cons_r1, p_cons_r2, p_cons_r3, p_cons_r4, p_cons_r5,
+          nrow=2, ncol = 5)
+ggsave("AFC_comparision_between_within.pdf", plot = p_merge, width = 20, height = 8)
+```
+
 #3. AFC correlation
 ##3.1 corr matrix
 ```{r}
-
+af_sig <-fread("Chisq_sig_SNP_af.txt.gz")
 #cor_col=colorRampPalette(c("#86C082", "#FBE992", "#F7D28A", "#F2BA83", "#EDA37D", "#EB8C77", "#E87671"))
 cor_col=colorRampPalette(c("#86C082", "#F2BA83", "#E87671"))
 afc_cor_pair <- data.table()
@@ -239,11 +347,12 @@ p<- ggplot(afc_cor_pair, aes(x=category, y=correlation, fill = category))+
                 test.args = list(alternative = "less"))+
     #facet_wrap(~focal_snp, nrow = 2)+
     labs(title = "Allele Frequency change correlation", x = "Comparison")+
+  theme_bw()+
   theme(legend.position = "none",
-        panel.background = element_rect(fill = "white", colour = "black"),
+        #panel.background = element_rect(fill = "white", colour = "black"),
         axis.text = element_text(size = 12),
         axis.title = element_text(size=15),title = element_text(size=18))
-ggsave(filename = "Chisq_AFC_correlation_boxplot.pdf",plot = p, width=8,height = 5)
+ggsave(filename = "Chisq_AFC_correlation_boxplot.pdf",plot = p, width=10,height = 6)
 ```
 
 ```{r}

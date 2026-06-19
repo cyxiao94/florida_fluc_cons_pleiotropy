@@ -1,0 +1,716 @@
+---
+title: "haplo_validate"
+author: "Changyi"
+date: "2026-06-01"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+haplotype reconstruction
+This is the script to reconsruct the haplotype data
+
+
+```{r}
+library(haploReconstruct)
+library(haplovalidate)
+library(data.table)
+library(poolSeq)
+library(ggplot2)
+library(ggpubr)
+```
+
+#1. data preparation
+only significant SNPs are required for haplovalidate to cluster
+1) AF for the significant SNPs
+2) CMH results
+```{r}
+num_repl <- 5
+gen <- c(10,20,30,40,50,60)
+len_2L=as.integer(21106324)
+len_3L=as.integer(22263419)
+
+sync_colname<-c("chr","pos","REF",
+           paste0("anc_F0_r",1:5),
+           paste0("cons_F",rep(gen, each = num_repl),"_r",rep(1:num_repl, length(gen))),
+           paste0("cons_F160_r",1:num_repl),
+           paste0("fluc_F",rep(gen, each = num_repl),"_r",rep(1:num_repl, length(gen))),
+           paste0("fluc_F160_r",1:num_repl)
+           )
+
+fluc_colname<-c("chr","pos","REF",
+           paste0("anc_F0_r",1:5),
+           paste0("fluc_F",rep(gen, each = num_repl),"_r",rep(1:num_repl, length(gen)))
+           )
+
+cons_colname<-c("chr","pos","REF",
+           paste0("anc_F0_r",1:5),
+           paste0("cons_F",rep(gen, each = num_repl),"_r",rep(1:num_repl, length(gen)))
+           )
+
+
+dt_sync<-fread("../../00data/genomic_data/F0_anc.F10-F60_F160_cons.F10-F60_F160_fluc.5rep.sync.gz",col.names = sync_colname)
+
+
+#fluc
+cmh_fluc<-fread("../../00data/genomic_data/fluctuating_F0_F60_CMH.result.gz")
+cmh_fluc<-cmh_fluc[adj_p<0.05,]
+dt_sync_fluc_sig<-dt_sync[cmh_fluc, on = .(chr, pos), nomatch = 0][, ..fluc_colname]
+fwrite(dt_sync_fluc_sig, file = "Fluc_F0_F60_cmh_sig_snps.sync", quote = FALSE, sep="\t", col.names = FALSE)
+
+cmh_fluc[, score := -log10(adj_p)]
+cmh_fluc<-cmh_fluc[chr!="4",]
+invisible(cmh_fluc[, new_chr := fcase(
+  chr %chin% c("2L","2R"), "2",
+  chr %chin% c("3L","3R"), "3",
+  default = "X"
+)])
+invisible(cmh_fluc[, new_pos := fcase(
+  chr=="2R",pos + len_2L,
+  chr=="3R", pos + len_3L,
+  default = pos
+)])
+cols_to_keep <- c("new_chr","new_pos","score")
+cmh_fluc<-cmh_fluc[,..cols_to_keep]
+setnames(cmh_fluc, c("chr","pos","score"))
+saveRDS(cmh_fluc, file = "Fluc_cmh_p.rds")
+#cons
+cmh_cons<-fread("../../00data/genomic_data/constant_F0_F60_CMH.result.gz")
+cmh_cons<-cmh_cons[adj_p<0.05,]
+dt_sync_cons_sig<-dt_sync[cmh_cons, on = .(chr, pos), nomatch = 0][, ..cons_colname]
+fwrite(dt_sync_cons_sig, file = "Cons_F0_F60_cmh_sig_snps.sync", quote = FALSE, sep="\t", col.names = FALSE)
+
+cmh_cons[, score := -log10(adj_p)]
+cmh_cons<-cmh_cons[chr!="4",]
+invisible(cmh_cons[, new_chr := fcase(
+  chr %chin% c("2L","2R"), "2",
+  chr %chin% c("3L","3R"), "3",
+  default = "X"
+)])
+invisible(cmh_cons[, new_pos := fcase(
+  chr=="2R",pos + len_2L,
+  chr=="3R", pos + len_3L,
+  default = pos
+)])
+cols_to_keep <- c("new_chr","new_pos","score")
+cmh_cons<-cmh_cons[,..cols_to_keep]
+setnames(cmh_cons, c("chr","pos","score"))
+saveRDS(cmh_cons, file = "Cons_cmh_p.rds")
+```
+
+##1.1 extract AF information
+```{r}
+repl <- 1:5
+gens <- c(0,10,20,30,40,50,60)
+
+len_2L=as.integer(21106324)
+len_3L=as.integer(22263419)
+
+
+#fluc
+sync_fluc<-read.sync("Fluc_F0_F60_cmh_sig_snps.sync", 
+                     gen = rep(gens,each=length(repl)), 
+                     repl = rep(repl,length(gens)), polarization = "rising")
+info_fluc<-sync_fluc@alleles
+#exclude chr4
+info_fluc<-info_fluc[chr!="4",]
+invisible(info_fluc[, fallallele := fifelse(rising != ref, ref,
+                                  fifelse(major == ref, minor, major))])
+invisible(info_fluc[, basePops := rowMeans(.SD, na.rm = TRUE), .SDcols = paste0("F0.R",1:5,".freq")])
+invisible(info_fluc[, new_chr := fcase(
+  chr %chin% c("2L","2R"), "2",
+  chr %chin% c("3L","3R"), "3",
+  default = "X"
+)])
+invisible(info_fluc[, new_pos := fcase(
+  chr=="2R",pos + len_2L,
+  chr=="3R", pos + len_3L,
+  default = pos
+)])
+
+cands_col<-c("new_chr","new_pos","ref","rising","fallallele", "basePops",
+             paste0("F",rep(gens, each=length(repl)),".R",rep(repl,length(gens)),".freq"))
+cands_fluc <- info_fluc[, ..cands_col]
+cands_fluc[, new_chr := factor(new_chr, levels = c("2","3","X"))]
+setorder(cands_fluc, new_chr, new_pos)
+setnames(cands_fluc, c("chr","pos","ref","riseallele","fallallele","basePops",
+                       paste0("L",1:35)))
+saveRDS(cands_fluc, file = "Fluc_F0_F60_cmh_sig_AF.rds")
+
+#cons
+sync_cons<-read.sync("Cons_F0_F60_cmh_sig_snps.sync", 
+                     gen = rep(gens,each=length(repl)), 
+                     repl = rep(repl,length(gens)), polarization = "rising")
+af_cons<-af(sync_cons, gen = gens, repl = repl)
+info_cons<-sync_cons@alleles
+#exclude chr4
+info_cons<-info_cons[chr!="4",]
+invisible(info_cons[, fallallele := fifelse(rising != ref, ref,
+                                  fifelse(major == ref, minor, major))])
+invisible(info_cons[, basePops := rowMeans(.SD, na.rm = TRUE), .SDcols = paste0("F0.R",1:5,".freq")])
+invisible(info_cons[, new_chr := fcase(
+  chr %chin% c("2L","2R"), "2",
+  chr %chin% c("3L","3R"), "3",
+  default = "X"
+)])
+invisible(info_cons[, new_pos := fcase(
+  chr=="2R",pos + len_2L,
+  chr=="3R", pos + len_3L,
+  default = pos
+)])
+cands_col<-c("new_chr","new_pos","ref","rising","fallallele", "basePops",
+             paste0("F",rep(gens, each=length(repl)),".R",rep(repl,length(gens)),".freq"))
+cands_cons <- info_cons[, ..cands_col]
+
+setnames(cands_cons, c("chr","pos","ref","riseallele","fallallele","basePops",
+                       paste0("L",1:35)))
+cands_cons[, chr := factor(chr, levels = c("2","3","X"))]
+setorder(cands_cons, chr, pos)
+saveRDS(cands_cons, file = "Cons_F0_F60_cmh_sig_AF.rds")
+
+```
+
+
+
+
+
+#2.perform haplotype clustering
+### 2.1 initialize parameters
+```{r}
+ repl <- 1:5
+ gens <- c(0,10,20,30,40,50,60)
+
+ base.pops <- c(rep(TRUE, length(repl)),rep(FALSE,length(repl)*(length(gens)-1)))
+ polaRise <- list(c(1,31),c(2,32),c(3,33),c(4,34),c(5,35)) 
+ compare <- rep(TRUE,length(repl)*length(gens))
+ pop.ident <- rep(repl,length(gens))
+ pop.generation  <- rep(gens, each=length(repl))
+
+```
+
+###2.2perform clustering
+```{r}
+repl <- 1:5
+gens <- c(0,10,20,30,40,50,60)
+
+#fluctutaing
+cands_fluc <- readRDS("Fluc_F0_F60_cmh_sig_AF.rds")
+cmh_fluc <- readRDS("Fluc_cmh_p.rds")
+
+#get haplovalidate parameters
+parameters <- get.mncs.win(cands_fluc, cmh_fluc, wins = seq(0.1, 10, 0.05), mncs = 0.01)
+
+#run haplovalidate
+happy_fluc <- haplovalidate(cands_fluc, 
+                       cmh_fluc, 
+                       parameters,
+                       repl,
+                       gens,
+                       takerandom = 2000,
+                       filterrange = 5000)
+saveRDS(happy_fluc,file="Fluc_F0_F60_haplotypes.rds")
+
+
+##constant
+cands_cons <- readRDS("Cons_F0_F60_cmh_sig_AF.rds")
+cmh_cons <- readRDS("cons_cmh_p.rds")
+
+#get haplovalidate parameters
+parameters <- get.mncs.win(cands_cons, cmh_cons, wins = seq(0.1, 10, 0.05), mncs = 0.01)
+
+#run haplovalidate
+happy_cons <- haplovalidate(cands_cons, 
+                       cmh_cons, 
+                       parameters,
+                       repl,
+                       gens,
+                       takerandom = 2000,
+                       filterrange = 5000)
+saveRDS(happy_cons,file="Cons_F0_F60_haplotypes.rds")
+```
+
+
+#3. visualisation
+###3.1 modified function of plot
+```{r}
+plot.haplovalidate.new <- function(blocks,cmh,title="",label=TRUE){
+     neuefarbe.raw <- unique(c(brewer.pal(8,"Set1"),brewer.pal(7,"Dark2"),brewer.pal(7,"Set2"),brewer.pal(12,"Set3"),brewer.pal(12,"Paired"),brewer.pal(7,"Accent"),brewer.pal(7,"Spectral")))
+     neuefarbe  <- colorRampPalette(neuefarbe.raw)(max(as.numeric(factor(blocks$tag)),na.rm=TRUE))
+    ## as.numeric removes the non-grouped tags!
+    col.sub <- neuefarbe[as.numeric(factor(blocks$tag))]
+    blocks[,groupcol := col.sub]
+        for (j in unique(blocks$chr)){
+            cluster.sub <- merge(blocks[chr==j,],cmh,by=c("chr","pos"))
+            png(paste("Plot_",title,"_",j,"_haplovalidate.png",sep=""),2400,1200)
+            par(mar = c(12,10,6,2))
+            maxy <- round(max(as.numeric(cmh[chr==j,score]),na.rm=TRUE),0) + round(max(as.numeric(cmh[chr==j,score]),na.rm=TRUE),0) * 0.02
+            cmh[chr==j,plot(pos/1000000,as.numeric(score),pch=19,col="#414547",ylim=c(0,maxy),
+                            xaxt = "n", yaxt ="n",
+                            xlab="",ylab="",lwd=3,
+                            #cex.axis=4,cex.lab=6,
+                            #main=paste0(title,"_chr",j), adj = 0, cex.main = 10, 
+                            xaxp=c(0,50,10))]
+            axis(1, mgp = c(3,3,0), cex.axis = 4) #xaxis
+            axis(2, mgp = c(3,2,0), cex.axis = 4) #yaxis
+            mtext("position Mb", side = 1, line = 8, cex = 6) #xlab
+            mtext("cmh score", side = 2, line = 6, cex = 6) #ylab
+            title(main = paste0(title,"_chr",j), adj = 0, cex.main = 6)
+            cluster.sub[,points(as.numeric(pos)/1000000,as.numeric(score),cex=2,lwd=3,pch=19,col=groupcol)]
+            count <- 0
+            cluster.sub.ord <- cluster.sub[order(score,decreasing=TRUE),]
+            for (k in na.exclude(unique(cluster.sub.ord$groupcol))){
+                group.sub <- cluster.sub.ord[groupcol==k,]
+                distance <- group.sub$pos/1000000
+                levi <- maxy  - count 
+                points(distance,rep(levi,length(distance)),col=k,pch=19,cex=3)
+                if (label)
+                    text(distance[1],levi,unique(group.sub[,tag]),cex =2)
+                count <- count +  round(max(as.numeric(cmh[chr==j,score]),na.rm=TRUE),0) * 0.01
+            }
+            dev.off()
+        }
+     return(blocks)
+ }
+
+```
+
+###3.2 plot haplotype
+```{r}
+happy_fluc <- readRDS("Fluc_F0_F60_haplotypes.rds")
+cmh <- readRDS("Fluc_cmh_p.rds")
+
+plot.haplovalidate.new(blocks=happy_fluc$dominant_haplotypes,cmh,title="Fluc",label=T)
+
+happy_cons <- readRDS("Cons_F0_F60_haplotypes.rds")
+cmh <- readRDS("Cons_cmh_p.rds")
+
+plot.haplovalidate.new(blocks=happy_cons$dominant_haplotypes,cmh,title="Cons",label=T)
+```
+
+#4. check the overlapping of haplotypes across treatment
+
+###4.1 find the haplotypes that overlap
+```{r}
+#setwd("~/my_project/00upload_github/genome_biology_florida_fluc_cons/07revision_v2/haplotype_analysis/")
+
+#load the haplovalidate results
+happy_fluc<-readRDS("Fluc_F0_F60_haplotypes.rds")
+happy_cons<-readRDS("Cons_F0_F60_haplotypes.rds")
+
+
+##fluctuating
+haplo_info_fluc<- happy_fluc$dominant_haplotypes
+af_fluc <- readRDS("Fluc_F0_F60_cmh_sig_AF.rds")
+haplo_info_fluc[af_fluc, on = .(chr,pos), riseallele := i.riseallele]
+#haplo_fluc <- haplo_info_fluc[, .(
+#  start = min(pos),
+#  end = max(pos)
+#  ), by = .(chr, tag)]
+
+#constant
+haplo_info_cons<- happy_cons$dominant_haplotypes
+af_cons <- readRDS("Cons_F0_F60_cmh_sig_AF.rds")
+haplo_info_cons[af_cons, on = .(chr,pos), riseallele := i.riseallele]
+
+#haplo_cons <- haplo_info_cons[, .(
+#  start = min(pos),
+#  end = max(pos)
+#), by = .(chr, tag)]
+
+#check the overlapping between haplotypes across environments
+overlap <- list()
+i <- 1
+for (haplo_id_fluc in unique(haplo_info_fluc$tag)) {
+  for (haplo_id_cons in unique(haplo_info_cons$tag)){
+    #information for the haplotype in the fluc
+    fluc_chr <- unique(haplo_info_fluc[tag==haplo_id_fluc,chr])
+    fluc_start <- min(haplo_info_fluc[tag==haplo_id_fluc,pos])
+    fluc_end <- max(haplo_info_fluc[tag==haplo_id_fluc,pos])
+    
+    #information for the haplotype in the cons
+    cons_chr <- unique(haplo_info_cons[tag==haplo_id_cons,chr])
+    cons_start <- min(haplo_info_cons[tag==haplo_id_cons,pos])
+    cons_end <- max(haplo_info_cons[tag==haplo_id_cons,pos])
+    
+    if (fluc_chr==cons_chr & max(fluc_start,cons_start) < min(fluc_end,cons_end)){ #check if the two haplotype overlaps
+      #overlapwindow
+      inter_chr <- fluc_chr;inter_start <- max(fluc_start,cons_start);inter_end <- min(fluc_end,cons_end)
+      #getting snps from the overlapping window 
+      fluc_snp <- haplo_info_fluc[tag == haplo_id_fluc & chr == inter_chr & pos >= inter_start & pos <= inter_end, .(chr,pos,riseallele)]
+      cons_snp <- haplo_info_cons[tag == haplo_id_cons & chr == inter_chr & pos >= inter_start & pos <= inter_end, .(chr,pos,riseallele)]
+      #check how many snps are overlapping
+      num_overlap <- nrow(fluc_snp[cons_snp, on = .(chr,pos,riseallele), nomatch = 0L])
+      num_total <- nrow(fluc_snp) + nrow(cons_snp) - num_overlap
+      percent_overlap <- num_overlap/num_total
+      
+      #write output
+      tmp <- data.table(
+        haplotype_id_fluc <- haplo_id_fluc,
+        fluc_chr <- fluc_chr,
+        fluc_start <- fluc_start,
+        fluc_end <- fluc_end,
+        haplotype_id_con <- haplo_id_cons,
+        cons_chr <- cons_chr,
+        cons_start <- cons_start,
+        cons_end <- cons_end,
+        intersect_chr <- inter_chr,
+        intersect_start <- inter_start,
+        intersect_end <- inter_end,
+        num_snp_fluc <- nrow(fluc_snp),
+        num_snp_cons <- nrow(cons_snp),
+        num_snp_total <- num_total,
+        num_snp_shared <- num_overlap,
+        percent_share <- percent_overlap
+      )
+      overlap[[i]] <- tmp
+      
+      i <- i + 1
+    }
+  }
+}
+
+dt_overlap <- rbindlist(overlap)
+setnames(dt_overlap,c("haplotype_id_fluc","fluc_chr","fluc_start","fluc_end",
+                      "haplotype_id_cons","cons_chr","cons_start","cons_end",
+                      "intersect_chr","intersect_start","intersect_end",
+                      "num_snp_in_fluc","num_snps_in_cons","num_snps_total","num_snps_shared","percent_share"))
+saveRDS(dt_overlap, file = "Haplotype_sharing.rds")
+
+```
+
+###4.2 summary plot
+```{r}
+dt_overlap <- readRDS("Haplotype_sharing.rds")
+p_overlap <- ggplot(dt_overlap, aes(x=percent_share*100))+
+  geom_density()+
+  labs(x="%SNP shared")+
+  theme_bw()+
+  theme(axis.text = element_text(size =10),
+        axis.title = element_text(size=12))
+ggsave("check_overlapping/summary_percent_share.pdf", plot = p_overlap, width = 10, height = 5)
+
+```
+
+###4.3 top 5 haplo-pair with higheest sharing
+```{r}
+
+haplo_info_fluc<- readRDS("Fluc_F0_F60_haplotypes.rds")$dominant_haplotypes
+haplo_info_cons<- readRDS("Cons_F0_F60_haplotypes.rds")$dominant_haplotypes
+
+plot_hap_pair <- function(tag_fluc, tag_cons, label_id){
+  col_shared <- "#6e326e"
+  col_cons <- "#4fc0c6"
+  col_fluc <- "#e8a11c"
+    
+  hap_fluc_snp<-haplo_info_fluc[tag==tag_fluc,]
+  hap_cons_snp<-haplo_info_cons[tag==tag_cons,]
+
+  shared_snp <- merge(
+    hap_fluc_snp[, .(chr,pos)],
+    hap_cons_snp[, .(chr,pos)]
+  )[,pos]
+
+  invisible(hap_fluc_snp[, category := fifelse(pos %in% shared_snp, "shared", "fluc")])
+  invisible(hap_cons_snp[, category := fifelse(pos %in% shared_snp, "shared", "cons")])
+
+  #get window
+  fluc_start<-min(hap_fluc_snp$pos); fluc_end<-max(hap_fluc_snp$pos)
+  cons_start<-min(hap_cons_snp$pos);cons_end<-max(hap_cons_snp$pos)
+  overlap_start <- max(fluc_start, cons_start); overlap_end <- min(fluc_end, cons_end)
+
+  #overlapping haplotypes
+  p1<-ggplot()+
+    #plot the haplotype
+    annotate("rect",xmin = fluc_start, xmax = fluc_end, ymin =0.9, ymax=1.1, fill = NA, color=col_fluc)+
+    annotate("text", x = fluc_start, y = 1.3, hjust=-0.1, ,label = tag_fluc, color=col_fluc)+
+    annotate("rect", xmin = cons_start, xmax = cons_end, ymin =1.9, ymax=2.1, fill=NA,color=col_cons)+
+    annotate("text", x = cons_end, y = 2.3, hjust=1.1, ,label = tag_cons, color=col_cons)+
+    #add significant SNPs on the haplotype
+    geom_point(data = hap_fluc_snp, aes(x=pos,y=1, color=category), size = 0.6)+
+    geom_point(data = hap_cons_snp, aes(x=pos,y=2, color=category), size = 0.6)+
+    scale_color_manual(values = c(col_cons, col_fluc, col_shared))+
+    #highlight overlaaping region
+    geom_rect(aes(xmin = overlap_start, xmax = overlap_end, ymin = 0.5, ymax = 2.5), fill = NA, linetype="dashed", color="black")+
+    #xlim(overlap_start-1000,overlap_end+1000)+
+    ylim(0,3)+
+    labs(x="position",y="")+
+    theme_minimal()+
+    theme(axis.text.y = element_blank(),
+          axis.text.x = element_text(size = 10),
+          axis.title = element_text(size = 10),
+          plot.margin = margin(t = 5, r = 20, b = 5, l = 5))
+  #plot(p1)
+  
+  #zoom in to the overlap region
+  p2<-ggplot()+
+    #plot the haplotype
+    annotate("rect",xmin = overlap_start, xmax = overlap_end, ymin =0.9, ymax=1.1, fill = NA, color=col_fluc)+
+    annotate("text", x = overlap_start, y = 1.3, hjust=-0.1, ,label = tag_fluc, color=col_fluc)+
+    annotate("rect", xmin = overlap_start, xmax = overlap_end, ymin =1.9, ymax=2.1, fill=NA,color=col_cons)+
+    annotate("text", x = overlap_end, y = 2.3, hjust=1.1, ,label = tag_cons, color=col_cons)+
+    #add significant SNPs on the haplotype
+    geom_point(data = hap_fluc_snp, aes(x=pos,y=1, color=category), size = 0.6)+
+    geom_point(data = hap_cons_snp, aes(x=pos,y=2, color=category), size = 0.6)+
+    scale_color_manual(values = c(col_cons, col_fluc, col_shared))+
+    #highlight overlaaping region
+    geom_rect(aes(xmin = overlap_start, xmax = overlap_end, ymin = 0.5, ymax = 2.5), fill = NA, linetype="dashed", color="black")+
+    xlim(overlap_start,overlap_end)+
+    ylim(0,3)+
+    labs(x="position",y="")+
+    theme_minimal()+
+    theme(axis.text.y = element_blank(),
+          axis.text.x = element_text(size = 10),
+          axis.title = element_text(size = 10),
+          plot.margin = margin(t = 5, r = 20, b = 5, l = 5))
+  #plot(p2)
+
+  merge_p<-ggarrange(p1,p2,nrow=2, common.legend = TRUE)
+  merge_p<-annotate_figure(p = merge_p, top= text_grob(label_id, x = 0.05, hjust = 0, face = "bold", size = 14))
+  ggsave(paste0("check_overlapping/",label_id,".pdf"),plot = merge_p, width = 10, height = 5)
+  #plot(merge_p)  
+}
+
+sorted_dt_overlap<-dt_overlap[order(-percent_share)]
+
+#check the top 5 overlapping pairs(>30% shared)
+
+for (i in 1:5){
+  tag_fluc<-sorted_dt_overlap[i, haplotype_id_fluc]
+  tag_cons<-sorted_dt_overlap[i, haplotype_id_cons]
+  percent_share <- sorted_dt_overlap[i, percent_share]
+  label_id <- paste0("Fluc(",tag_fluc, ")_Cons(",tag_cons,")_",round(percent_share,4))
+  plot_hap_pair(tag_fluc, tag_cons, label_id)
+}
+
+```
+
+##4.4 count region overlap
+```{r}
+##function to get the haplotype regions
+get_bed <- function(haplo_info){
+  haplo_bed <- list()
+  i=1
+  for (haplo_id in unique(haplo_info$tag)){
+    chr <- unique(haplo_info[tag==haplo_id,chr])
+    start <- min(haplo_info[tag==haplo_id,pos])
+    end <- max(haplo_info[tag==haplo_id,pos])
+    haplo_bed[[i]] <- data.table(haplo_id=haplo_id, chr = chr, start = start, end = end)
+    i <- i + 1
+  }
+  haplo_bed<-rbindlist(haplo_bed)
+  return(haplo_bed)
+}
+
+merge_overlap <- function(haplo_bed){
+  setorder(haplo_bed, chr, start, end)
+  
+  haplo_bed[, max_end := cummax(end), by = chr]
+  haplo_bed[, group := cumsum(start > shift(max_end, fill = first(start) -1)), by = chr]
+  
+  merged_bed <- haplo_bed[, .(
+    start = min(start),
+    end = max(end)
+  ), by = .(chr, group)]
+   
+  merged_bed[, group := NULL]
+  merged_bed[, length := end - start +1 ]
+  
+  return(merged_bed)
+}
+
+#fluctuating
+haplo_info_fluc<-readRDS("Fluc_F0_F60_haplotypes.rds")$dominant_haplotypes
+haplo_fluc<-get_bed(haplo_info_fluc)
+merged_haplo_fluc<-merge_overlap(haplo_fluc)
+len_fluc<-sum(merged_haplo_fluc[, length])
+#constant
+haplo_info_cons<-readRDS("Cons_F0_F60_haplotypes.rds")$dominant_haplotypes
+haplo_cons<-get_bed(haplo_info_cons)
+merged_haplo_cons<-merge_overlap(haplo_cons)
+len_cons<-sum(merged_haplo_cons[, length])
+
+#get the total length
+#combine bed file from fluc and cons
+combine_haplo <- merge_overlap(rbind(merged_haplo_fluc, merged_haplo_cons))
+len_total <- sum(combine_haplo[,length])
+
+#check the overlap
+hap_pair_overlap <- readRDS("Haplotype_sharing.rds")
+overlap_bed <- data.table(chr = hap_pair_overlap$intersect_chr,
+                          start = hap_pair_overlap$intersect_start,
+                          end = hap_pair_overlap$intersect_end)
+merged_overlap <- merge_overlap(overlap_bed)
+len_overlap <- sum(merged_overlap[,length])
+
+exp_overlap<-len_cons*len_fluc/len_total
+```
+#5.check the shared SNPs
+crosscheck with the CMH(F60) results, check whether the shared SNPs enriched in the haplotype
+
+
+```{r}
+#update the position 2L, 2R --> 2 3L,3R -->3
+len_2L=as.integer(21106324)
+len_3L=as.integer(22263419)
+
+#load cmh results
+fluc_cmh <- fread("../00data/genomic_data/fluctuating_F0_F60_CMH.result.gz", header = TRUE)
+setnames(fluc_cmh, old = c("p", "adj_p"), new = c("fluc_p", "fluc_adj_p"))
+cons_cmh <- fread("../00data/genomic_data/constant_F0_F60_CMH.result.gz", header=TRUE)
+setnames(cons_cmh, old = c("p", "adj_p"), new = c("cons_p", "cons_adj_p"))
+cmh <- merge(fluc_cmh, cons_cmh, by = c("chr","pos"), all = TRUE)
+cmh[is.na(cmh)] <- 1
+#keep only the significant SNPs
+cmh_sig <- cmh[fluc_adj_p < 0.05 | cons_adj_p<0.05,]
+#add category based on the significance
+cmh_sig[, significance := fifelse(fluc_adj_p<0.05 & cons_adj_p < 0.05, "Shared",
+                                  fifelse(fluc_adj_p<0.05, "Fluctuating", "Constant"))]
+cmh_sig[, significance := factor(significance, levels = c("Shared", "Constant", "Fluctuating"))]
+cmh_sig[, loci := paste0(chr, ".", pos)]
+
+##load haplotype information
+fluc_hap <- readRDS("Fluc_F0_F60_haplotypes.rds")$dominant_haplotypes
+cons_hap <- readRDS("Cons_F0_F60_haplotypes.rds")$dominant_haplotypes
+```
+##functions
+```{r}
+#manhattn plot
+plot_manhattan <- function(dt, y_col, plot_title){
+
+  p_manhattan<-ggplot(dt, aes(x=pos/1000000, y=-log10({{ y_col }}), color = significance))+
+    geom_point(cex=0.1)+
+    theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
+          axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
+          axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")+
+    #scale_x_continuous(breaks = seq(0,25,5))+
+    scale_y_continuous(breaks = seq(0,20,5), limits = c(0,20))+
+    geom_hline(aes(yintercept=-log10(0.05)), color="red", linetype="dashed")+
+    scale_color_manual(values = c("#6e326e","#4fc0c6","#e8a11c"))+
+    labs(x = "postion(Mb)", y = "CMH -log10(p-value)", title=plot_title)
+
+  return(p_manhattan)
+
+}
+
+
+#haplotype_plot
+plot_haplotype <- function(chrom, start, end){
+
+  len_2L=as.integer(21106324)
+  len_3L=as.integer(22263419)
+
+  hap_chr <- fifelse(
+    chrom %in% c("2L","2R"), "2",
+    fifelse(chrom %in% c("3L", "3R"), "3", "X")
+    )
+  hap_start <- fifelse(
+    chrom == "2R", start + len_2L,
+    fifelse(chrom == "3R", start + len_3L, start)
+  )
+  hap_end <- fifelse(
+    chrom == "2R", end + len_2L,
+    fifelse(chrom == "3R", end + len_3L, end)
+  )
+
+  #fluc haplotype in this region
+  dt_hap <- fluc_hap[chr == hap_chr & pos > hap_start & pos < hap_end,]
+  dt_hap[, cmh_chr := fifelse(chr=="2", fifelse(pos < len_2L, "2L", "2R"),
+                              fifelse(chr == "3", fifelse(pos < len_3L, "3L", "3R"), "X")
+                              )]
+  dt_hap[, cmh_pos := fifelse(cmh_chr== "2R", pos - len_2L,
+                              fifelse(cmh_chr =="3R", pos - len_3L, pos))]  
+  dt_hap[, loci := paste0(cmh_chr, ".",cmh_pos)]
+
+  dt_hap<-merge(dt_hap, cmh_sig[, c("loci","fluc_adj_p", "significance")], by = "loci")
+  p_fluc <- ggplot(dt_hap, aes(x=cmh_pos/1000000, y =tag, color = significance))+
+    geom_point(cex=0.1)+
+    xlim(start/1000000,end/1000000)+
+    scale_color_manual(values = c("#6e326e","#e8a11c"))+
+    labs(x = "postion(Mb)", 
+         y = "Haplotype ID", 
+         title=paste0("Fluctuating(Chr",chrom,"_",start,"_",end,")"))+
+    theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
+          axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
+          axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")
+
+  #cons haplotype in this region
+  dt_hap <- cons_hap[chr == hap_chr & pos > hap_start & pos < hap_end,]
+  dt_hap[, cmh_chr := fifelse(chr=="2", fifelse(pos < len_2L, "2L", "2R"),
+                              fifelse(chr == "3", fifelse(pos < len_3L, "3L", "3R"), "X")
+                              )]
+  dt_hap[, cmh_pos := fifelse(cmh_chr== "2R", pos - len_2L,
+                              fifelse(cmh_chr =="3R", pos - len_3L, pos))]  
+  dt_hap[, loci := paste0(cmh_chr, ".",cmh_pos)]
+
+  dt_hap<-merge(dt_hap, cmh_sig[, c("loci","fluc_adj_p", "significance")], by = "loci")
+  p_cons <- ggplot(dt_hap, aes(x=cmh_pos/1000000, y =tag, color = significance))+
+    geom_point(cex=0.1)+
+    xlim(start/1000000,end/1000000)+
+    scale_color_manual(values = c("#6e326e","#4fc0c6"))+
+    labs(x = "postion(Mb)", 
+         y = "Haplotype ID", 
+         title=paste0("Constant(Chr",chrom,"_",start,"_",end, ")"))+
+    theme(#panel.grid = element_blank(), 
+          panel.background = element_rect(fill="white", color= "black"),
+          axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
+          axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")
+
+
+  p_haplotype <- ggarrange(p_fluc, p_cons, nrow = 2)
+  return(p_haplotype)
+}
+```
+
+
+##5.1 chr2R_10Mb(7.5-12.5)
+```{r}
+chrom = "2R"; start = 7500000; end = 12500000
+dt<-cmh_sig[chr==chrom & pos > start & pos < end,]
+p_fluc <- plot_manhattan(dt, fluc_adj_p, plot_title = "Fluc vs Anc")
+p_cons <- plot_manhattan(dt, cons_adj_p, plot_title = "Cons vs Anc")
+p_manhattan <- ggarrange(p_fluc, p_cons, nrow = 2)
+
+#haplotype plot
+p_haplotype <- plot_haplotype(chrom, start, end)
+
+p <- ggarrange(p_manhattan, p_haplotype, ncol = 2)
+
+ggsave(filename = paste0("zoom_in_check/",chrom,"_",start,"_",end,".pdf"),
+      plot = p, width = 10, height = 8)
+```
+
+##5.2 chr3R_5Mb(2.5-7.5)
+```{r}
+chrom = "3R"; start = 2500000; end = 7500000
+dt<-cmh_sig[chr==chrom & pos > start & pos < end,]
+p_fluc <- plot_manhattan(dt, fluc_adj_p, plot_title = "Fluc vs Anc")
+p_cons <- plot_manhattan(dt, cons_adj_p, plot_title = "Cons vs Anc")
+p_manhattan <- ggarrange(p_fluc, p_cons, nrow = 2)
+
+#haplotype plot
+p_haplotype <- plot_haplotype(chrom, start, end)
+
+p <- ggarrange(p_manhattan, p_haplotype, ncol = 2)
+
+ggsave(filename = paste0("zoom_in_check/",chrom,"_",start,"_",end,".pdf"),
+      plot = p, width = 10, height = 8)
+```
+
+##5.2 chrX_10Mb(2.5-7.5)
+```{r}
+chrom = "X"; start = 7500000; end = 12500000
+dt<-cmh_sig[chr==chrom & pos > start & pos < end,]
+p_fluc <- plot_manhattan(dt, fluc_adj_p, plot_title = "Fluc vs Anc")
+p_cons <- plot_manhattan(dt, cons_adj_p, plot_title = "Cons vs Anc")
+p_manhattan <- ggarrange(p_fluc, p_cons, nrow = 2)
+
+#haplotype plot
+p_haplotype <- plot_haplotype(chrom, start, end)
+
+p <- ggarrange(p_manhattan, p_haplotype, ncol = 2)
+
+ggsave(filename = paste0("zoom_in_check/",chrom,"_",start,"_",end,".pdf"),
+      plot = p, width = 10, height = 8)
+```

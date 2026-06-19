@@ -1,0 +1,6 @@
+replicate	autosome	X
+Rep1	133	113
+Rep2	126	89
+Rep3	154	111
+Rep4	131	117
+Rep5	135	96
