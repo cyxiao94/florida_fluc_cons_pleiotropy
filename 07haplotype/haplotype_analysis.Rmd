@@ -343,6 +343,8 @@ for (haplo_id_fluc in unique(haplo_info_fluc$tag)) {
       #check how many snps are overlapping
       num_overlap <- nrow(fluc_snp[cons_snp, on = .(chr,pos,riseallele), nomatch = 0L])
       num_total <- nrow(fluc_snp) + nrow(cons_snp) - num_overlap
+      percent_fluc <- num_overlap/nrow(fluc_snp)
+      percent_cons <- num_overlap/nrow(cons_snp)
       percent_overlap <- num_overlap/num_total
       
       #write output
@@ -362,6 +364,8 @@ for (haplo_id_fluc in unique(haplo_info_fluc$tag)) {
         num_snp_cons <- nrow(cons_snp),
         num_snp_total <- num_total,
         num_snp_shared <- num_overlap,
+        percent_fluc <- percent_fluc,
+        percent_cons <- percent_cons,
         percent_share <- percent_overlap
       )
       overlap[[i]] <- tmp
@@ -375,7 +379,8 @@ dt_overlap <- rbindlist(overlap)
 setnames(dt_overlap,c("haplotype_id_fluc","fluc_chr","fluc_start","fluc_end",
                       "haplotype_id_cons","cons_chr","cons_start","cons_end",
                       "intersect_chr","intersect_start","intersect_end",
-                      "num_snp_in_fluc","num_snps_in_cons","num_snps_total","num_snps_shared","percent_share"))
+                      "num_snp_in_fluc","num_snps_in_cons","num_snps_total","num_snps_shared",
+                      "percent_in_fluc","percent_in_cons","percent_share"))
 saveRDS(dt_overlap, file = "Haplotype_sharing.rds")
 
 ```
@@ -558,8 +563,13 @@ len_3L=as.integer(22263419)
 #load cmh results
 fluc_cmh <- fread("../00data/genomic_data/fluctuating_F0_F60_CMH.result.gz", header = TRUE)
 setnames(fluc_cmh, old = c("p", "adj_p"), new = c("fluc_p", "fluc_adj_p"))
+
+
+
 cons_cmh <- fread("../00data/genomic_data/constant_F0_F60_CMH.result.gz", header=TRUE)
 setnames(cons_cmh, old = c("p", "adj_p"), new = c("cons_p", "cons_adj_p"))
+
+
 cmh <- merge(fluc_cmh, cons_cmh, by = c("chr","pos"), all = TRUE)
 cmh[is.na(cmh)] <- 1
 #keep only the significant SNPs
@@ -572,7 +582,13 @@ cmh_sig[, loci := paste0(chr, ".", pos)]
 
 ##load haplotype information
 fluc_hap <- readRDS("Fluc_F0_F60_haplotypes.rds")$dominant_haplotypes
+af_fluc <- readRDS("Fluc_F0_F60_cmh_sig_AF.rds")
+fluc_hap[af_fluc, on = .(chr,pos), riseallele := i.riseallele]
+
 cons_hap <- readRDS("Cons_F0_F60_haplotypes.rds")$dominant_haplotypes
+af_cons <- readRDS("Cons_F0_F60_cmh_sig_AF.rds")
+cons_hap[af_cons, on = .(chr,pos), riseallele := i.riseallele]
+
 ```
 ##functions
 ```{r}
@@ -601,6 +617,14 @@ plot_haplotype <- function(chrom, start, end){
   len_2L=as.integer(21106324)
   len_3L=as.integer(22263419)
 
+  cols <- c(
+    Fluctuating = "#e8a11c",
+    Constant = col_cons <- "#4fc0c6",
+    Shared = "#6e326e", #SNPs significant in both pop and same allele increase freq
+    Divergence = "grey" #SNPs significant in both pop but different allele increase freq
+  )
+  col_levels <- c("Divergence", "Shared", "Fluctuating", "Constant")
+  
   hap_chr <- fifelse(
     chrom %in% c("2L","2R"), "2",
     fifelse(chrom %in% c("3L", "3R"), "3", "X")
@@ -624,17 +648,41 @@ plot_haplotype <- function(chrom, start, end){
   dt_hap[, loci := paste0(cmh_chr, ".",cmh_pos)]
 
   dt_hap<-merge(dt_hap, cmh_sig[, c("loci","fluc_adj_p", "significance")], by = "loci")
-  p_fluc <- ggplot(dt_hap, aes(x=cmh_pos/1000000, y =tag, color = significance))+
+  
+  #update the significance by checking if the same alleles increase freq in fluc and cons
+  cons_shared <- af_cons[, .(chr, pos, cons_rise_allele = riseallele)]
+  dt_hap[cons_shared, cons_rise_allele := i.cons_rise_allele, on = c("chr","pos")]
+  dt_hap[, new_significance := fifelse(significance=="Fluctuating","Fluctuating",
+                                       fifelse(riseallele==cons_rise_allele, "Shared", "Divergence"))]
+  dt_hap[, new_significance := factor(new_significance, levels = col_levels)]
+  
+  hap_summary <- dt_hap[, .(
+    n_snps = uniqueN(cmh_pos),
+    n_shared_snps = uniqueN(cmh_pos[new_significance == "Shared"]),
+    start = min(cmh_pos),
+    end = max(cmh_pos)
+  ),
+  by = tag]
+
+  hap_summary[, percent_share := sprintf("%.2f%%", 100 * n_shared_snps/n_snps)]
+  
+  p_fluc <- ggplot(dt_hap, aes(x=cmh_pos/1000000, y =tag, color = new_significance))+
     geom_point(cex=0.1)+
+    geom_text(data = hap_summary, 
+              aes(x=end/1000000, y=tag, label = percent_share), 
+              inherit.aes = FALSE, vjust = 1.5)+
     xlim(start/1000000,end/1000000)+
-    scale_color_manual(values = c("#6e326e","#e8a11c"))+
+    scale_color_manual(values = cols)+
     labs(x = "postion(Mb)", 
          y = "Haplotype ID", 
          title=paste0("Fluctuating(Chr",chrom,"_",start,"_",end,")"))+
     theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
           axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
-          axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")
+          axis.title = element_text(size=12), title = element_text(size=12),
+          legend.position = "none")
 
+  #plot(p_fluc)
+  
   #cons haplotype in this region
   dt_hap <- cons_hap[chr == hap_chr & pos > hap_start & pos < hap_end,]
   dt_hap[, cmh_chr := fifelse(chr=="2", fifelse(pos < len_2L, "2L", "2R"),
@@ -645,17 +693,39 @@ plot_haplotype <- function(chrom, start, end){
   dt_hap[, loci := paste0(cmh_chr, ".",cmh_pos)]
 
   dt_hap<-merge(dt_hap, cmh_sig[, c("loci","fluc_adj_p", "significance")], by = "loci")
+  
+  #update the significance by checking if the same alleles increase freq in fluc and cons
+  fluc_shared <- af_fluc[, .(chr, pos, fluc_rise_allele = riseallele)]
+  dt_hap[fluc_shared, fluc_rise_allele := i.fluc_rise_allele, on = c("chr","pos")]
+  dt_hap[, new_significance := fifelse(significance=="Constant","Constant",
+                                       fifelse(riseallele==fluc_rise_allele, "Shared", "Divergence"))]
+  dt_hap[, new_significance := factor(new_significance, levels = col_levels)]
+  
+  hap_summary <- dt_hap[, .(
+    n_snps = uniqueN(cmh_pos),
+    n_shared_snps = uniqueN(cmh_pos[new_significance == "Shared"]),
+    start = min(cmh_pos),
+    end = max(cmh_pos)
+  ),
+  by = tag]
+
+  hap_summary[, percent_share := sprintf("%.2f%%", 100 * n_shared_snps/n_snps)]
+  
   p_cons <- ggplot(dt_hap, aes(x=cmh_pos/1000000, y =tag, color = significance))+
     geom_point(cex=0.1)+
+    geom_text(data = hap_summary, 
+              aes(x=end/1000000, y=tag, label = percent_share), 
+              inherit.aes = FALSE, vjust = 1.5)+
     xlim(start/1000000,end/1000000)+
-    scale_color_manual(values = c("#6e326e","#4fc0c6"))+
+    scale_color_manual(values = cols)+
     labs(x = "postion(Mb)", 
          y = "Haplotype ID", 
          title=paste0("Constant(Chr",chrom,"_",start,"_",end, ")"))+
     theme(#panel.grid = element_blank(), 
           panel.background = element_rect(fill="white", color= "black"),
           axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
-          axis.title = element_text(size=12), title = element_text(size=12),legend.position = "none")
+          axis.title = element_text(size=12), title = element_text(size=12),
+          legend.position = "none")
 
 
   p_haplotype <- ggarrange(p_fluc, p_cons, nrow = 2)
@@ -713,4 +783,10 @@ p <- ggarrange(p_manhattan, p_haplotype, ncol = 2)
 
 ggsave(filename = paste0("zoom_in_check/",chrom,"_",start,"_",end,".pdf"),
       plot = p, width = 10, height = 8)
+```
+
+
+
+```{r}
+t1<-cons_hap[tag == "2_0.6_98",]
 ```
