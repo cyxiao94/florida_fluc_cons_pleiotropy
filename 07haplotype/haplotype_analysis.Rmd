@@ -589,6 +589,8 @@ cons_hap <- readRDS("Cons_F0_F60_haplotypes.rds")$dominant_haplotypes
 af_cons <- readRDS("Cons_F0_F60_cmh_sig_AF.rds")
 cons_hap[af_cons, on = .(chr,pos), riseallele := i.riseallele]
 
+#hap_pair between fluc and cons
+hap_pair_overlap <- readRDS("Haplotype_sharing.rds")
 ```
 ##functions
 ```{r}
@@ -664,18 +666,20 @@ plot_haplotype <- function(chrom, start, end){
   ),
   by = tag]
 
-  hap_summary[, percent_share := sprintf("%.2f%%", 100 * n_shared_snps/n_snps)]
+  hap_max <- hap_pair_overlap[, .(max_percent_sharing = max(percent_share, na.rm = TRUE)), by = haplotype_id_fluc]
+  hap_max[, max_percent_sharing := sprintf("%.2f%%", 100*max_percent_sharing)]
+  hap_summary[hap_max, max_percent_sharing := i.max_percent_sharing, on = .(tag = haplotype_id_fluc) ]
   
   p_fluc <- ggplot(dt_hap, aes(x=cmh_pos/1000000, y =tag, color = new_significance))+
     geom_point(cex=0.1)+
     geom_text(data = hap_summary, 
-              aes(x=end/1000000, y=tag, label = percent_share), 
-              inherit.aes = FALSE, vjust = 1.5)+
-    xlim(start/1000000,end/1000000)+
+              aes(x=end/1000000, y=tag, label = max_percent_sharing), 
+              inherit.aes = FALSE, vjust = 1.5, hjust = 1)+
+    xlim(start/1000000-0.5,end/1000000+0.5)+
     scale_color_manual(values = cols)+
     labs(x = "postion(Mb)", 
          y = "Haplotype ID", 
-         title=paste0("Fluctuating(Chr",chrom,"_",start,"_",end,")"))+
+         title="Fluctuating Haplotypes")+
     theme(panel.grid = element_blank(), panel.background = element_rect(fill="white", color= "black"),
           axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
           axis.title = element_text(size=12), title = element_text(size=12),
@@ -709,18 +713,21 @@ plot_haplotype <- function(chrom, start, end){
   ),
   by = tag]
 
-  hap_summary[, percent_share := sprintf("%.2f%%", 100 * n_shared_snps/n_snps)]
+  #hap_summary[, percent_share := sprintf("%.2f%%", 100 * n_shared_snps/n_snps)]
+  hap_max <- hap_pair_overlap[, .(max_percent_sharing = max(percent_share, na.rm = TRUE)), by = haplotype_id_cons]
+  hap_max[, max_percent_sharing := sprintf("%.2f%%", 100*max_percent_sharing)]
+  hap_summary[hap_max, max_percent_sharing := i.max_percent_sharing, on = .(tag = haplotype_id_cons) ]
   
   p_cons <- ggplot(dt_hap, aes(x=cmh_pos/1000000, y =tag, color = significance))+
     geom_point(cex=0.1)+
     geom_text(data = hap_summary, 
-              aes(x=end/1000000, y=tag, label = percent_share), 
-              inherit.aes = FALSE, vjust = 1.5)+
-    xlim(start/1000000,end/1000000)+
+              aes(x=end/1000000, y=tag, label = max_percent_sharing), 
+              inherit.aes = FALSE, vjust = 1.5, hjust = 1)+
+    xlim(start/1000000-0.5,end/1000000+0.5)+
     scale_color_manual(values = cols)+
     labs(x = "postion(Mb)", 
          y = "Haplotype ID", 
-         title=paste0("Constant(Chr",chrom,"_",start,"_",end, ")"))+
+         title="Constant haplotypes")+
     theme(#panel.grid = element_blank(), 
           panel.background = element_rect(fill="white", color= "black"),
           axis.text.x = element_text(size=8),axis.text.y = element_text(size=10),
@@ -736,7 +743,7 @@ plot_haplotype <- function(chrom, start, end){
 
 ##5.1 chr2R_10Mb(7.5-12.5)
 ```{r}
-chrom = "2R"; start = 7500000; end = 12500000
+chrom = "2R"; pos = 10000000; start = pos - 2500000; end = pos + 2500000
 dt<-cmh_sig[chr==chrom & pos > start & pos < end,]
 p_fluc <- plot_manhattan(dt, fluc_adj_p, plot_title = "Fluc vs Anc")
 p_cons <- plot_manhattan(dt, cons_adj_p, plot_title = "Cons vs Anc")
@@ -746,6 +753,11 @@ p_manhattan <- ggarrange(p_fluc, p_cons, nrow = 2)
 p_haplotype <- plot_haplotype(chrom, start, end)
 
 p <- ggarrange(p_manhattan, p_haplotype, ncol = 2)
+p <- annotate_figure(p, 
+                     top = text_grob(
+                       paste0("Chr",chrom,"_",pos/1000000, "Mb (",
+                              start/1000000, "-", end/1000000, "Mb)"),
+                       x = 0, hjust = 0, face = "bold", size = 16))
 
 ggsave(filename = paste0("zoom_in_check/",chrom,"_",start,"_",end,".pdf"),
       plot = p, width = 10, height = 8)
@@ -753,7 +765,7 @@ ggsave(filename = paste0("zoom_in_check/",chrom,"_",start,"_",end,".pdf"),
 
 ##5.2 chr3R_5Mb(2.5-7.5)
 ```{r}
-chrom = "3R"; start = 2500000; end = 7500000
+chrom = "3R"; pos = 5000000; start = pos - 2500000; end = pos + 2500000
 dt<-cmh_sig[chr==chrom & pos > start & pos < end,]
 p_fluc <- plot_manhattan(dt, fluc_adj_p, plot_title = "Fluc vs Anc")
 p_cons <- plot_manhattan(dt, cons_adj_p, plot_title = "Cons vs Anc")
@@ -763,6 +775,11 @@ p_manhattan <- ggarrange(p_fluc, p_cons, nrow = 2)
 p_haplotype <- plot_haplotype(chrom, start, end)
 
 p <- ggarrange(p_manhattan, p_haplotype, ncol = 2)
+p <- annotate_figure(p, 
+                     top = text_grob(
+                       paste0("Chr",chrom,"_",pos/1000000, "Mb (",
+                              start/1000000, "-", end/1000000, "Mb)"),
+                       x = 0, hjust = 0, face = "bold", size = 16))
 
 ggsave(filename = paste0("zoom_in_check/",chrom,"_",start,"_",end,".pdf"),
       plot = p, width = 10, height = 8)
@@ -770,7 +787,7 @@ ggsave(filename = paste0("zoom_in_check/",chrom,"_",start,"_",end,".pdf"),
 
 ##5.2 chrX_10Mb(2.5-7.5)
 ```{r}
-chrom = "X"; start = 7500000; end = 12500000
+chrom = "X"; pos = 10000000; start = pos - 2500000; end = pos + 2500000
 dt<-cmh_sig[chr==chrom & pos > start & pos < end,]
 p_fluc <- plot_manhattan(dt, fluc_adj_p, plot_title = "Fluc vs Anc")
 p_cons <- plot_manhattan(dt, cons_adj_p, plot_title = "Cons vs Anc")
@@ -780,6 +797,11 @@ p_manhattan <- ggarrange(p_fluc, p_cons, nrow = 2)
 p_haplotype <- plot_haplotype(chrom, start, end)
 
 p <- ggarrange(p_manhattan, p_haplotype, ncol = 2)
+p <- annotate_figure(p, 
+                     top = text_grob(
+                       paste0("Chr",chrom,"_",pos/1000000, "Mb (",
+                              start/1000000, "-", end/1000000, "Mb)"),
+                       x = 0, hjust = 0, face = "bold", size = 16))
 
 ggsave(filename = paste0("zoom_in_check/",chrom,"_",start,"_",end,".pdf"),
       plot = p, width = 10, height = 8)
@@ -788,5 +810,5 @@ ggsave(filename = paste0("zoom_in_check/",chrom,"_",start,"_",end,".pdf"),
 
 
 ```{r}
-t1<-cons_hap[tag == "2_0.6_98",]
+hap_overlap<-readRDS("Haplotype_sharing.rds")
 ```
